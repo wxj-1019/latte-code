@@ -2,357 +2,228 @@
   <img src="assets/screenshot.png" alt="latte" width="720" />
 </p>
 
-<h1 align="center">latte</h1>
+<h1 align="center">Latte</h1>
 
 <p align="center">
-  <strong>The free build of Claude Code.</strong><br>
-  All telemetry stripped. All guardrails removed. All experimental features unlocked.<br>
-  One binary, zero callbacks home.
+  <strong>☕ 一杯香浓的 Claude Code 体验。</strong><br>
+  中文界面 | 自动语言检测 | 多模型支持 | 皮卡丘图标<br>
+  一个二进制文件，开箱即用。
 </p>
 
 <p align="center">
   <a href="#quick-install"><img src="https://img.shields.io/badge/install-one--liner-blue?style=flat-square" alt="Install" /></a>
   <a href="https://github.com/wxj-1019/latte-code/stargazers"><img src="https://img.shields.io/github/stars/wxj-1019/latte-code?style=flat-square" alt="Stars" /></a>
   <a href="https://github.com/wxj-1019/latte-code/issues"><img src="https://img.shields.io/github/issues/wxj-1019/latte-code?style=flat-square" alt="Issues" /></a>
-  <a href="https://github.com/wxj-1019/latte-code/blob/main/FEATURES.md"><img src="https://img.shields.io/badge/features-88%20flags-orange?style=flat-square" alt="Feature Flags" /></a>
-  <a href="#ipfs-mirror"><img src="https://img.shields.io/badge/IPFS-mirrored-teal?style=flat-square" alt="IPFS" /></a>
+  <a href="https://github.com/wxj-1019/latte-code/releases"><img src="https://img.shields.io/github/v/release/wxj-1019/latte-code?style=flat-square" alt="Release" /></a>
 </p>
 
 ---
 
-## Quick Install
+## ✨ 特性
+
+- 🌏 **中文本地化** - 所有命令和界面支持中文显示
+- 🎯 **自动语言检测** - 根据系统语言自动切换中英文
+- 🤖 **多模型支持** - 支持 Anthropic、OpenAI、Kimi 等多个 AI 提供商
+- ⚡ **实验性功能** - 解锁 54+ 个实验性功能标志
+- 🐱 **可爱图标** - 皮卡丘 ASCII 艺术图标
+- 📦 **单文件运行** - 一个可执行文件，无需安装
+
+---
+
+## 🚀 快速安装
+
+### Windows（直接下载）
+
+```powershell
+irm https://github.com/wxj-1019/latte-code/releases/latest/download/latte.exe -OutFile latte.exe
+.\latte.exe
+```
+
+### Linux / macOS（一键脚本）
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/wxj-1019/latte-code/main/install.sh | bash
 ```
 
-Checks your system, installs Bun if needed, clones the repo, builds with all experimental features enabled, and symlinks `latte` on your PATH.
-
-Then run `latte` and use the `/login` command to authenticate with your preferred model provider.
+安装完成后运行 `latte` 并使用 `/login` 命令登录。
 
 ---
 
-## Table of Contents
+## 📋 目录
 
-- [What is this](#what-is-this)
-- [Model Providers](#model-providers)
-- [Quick Install](#quick-install)
-- [Requirements](#requirements)
-- [Build](#build)
-- [Usage](#usage)
-- [Experimental Features](#experimental-features)
-- [Project Structure](#project-structure)
-- [Tech Stack](#tech-stack)
-- [IPFS Mirror](#ipfs-mirror)
-- [Contributing](#contributing)
-- [License](#license)
+- [特性](#特性)
+- [快速安装](#快速安装)
+- [模型提供商](#模型提供商)
+- [中文本地化](#中文本地化)
+- [构建](#构建)
+- [使用方法](#使用方法)
+- [实验性功能](#实验性功能)
+- [技术栈](#技术栈)
+- [许可证](#许可证)
 
 ---
 
-## What is this
+## 🤖 模型提供商
 
-A clean, buildable fork of Anthropic's [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI -- the terminal-native AI coding agent. The upstream source became publicly available on March 31, 2026 through a source map exposure in the npm distribution.
+Latte 支持多个 API 提供商，通过环境变量切换：
 
-This fork applies three categories of changes on top of that snapshot:
+### Anthropic（默认）
 
-### Telemetry removed
+```bash
+export ANTHROPIC_API_KEY="sk-ant-..."
+latte
+```
 
-The upstream binary phones home through OpenTelemetry/gRPC, GrowthBook analytics, Sentry error reporting, and custom event logging. In this build:
+### Kimi（推荐）
 
-- All outbound telemetry endpoints are dead-code-eliminated or stubbed
-- GrowthBook feature flag evaluation still works locally (needed for runtime feature gates) but does not report back
-- No crash reports, no usage analytics, no session fingerprinting
+```bash
+export ANTHROPIC_BASE_URL="https://api.moonshot.cn/v1"
+export ANTHROPIC_API_KEY="your-kimi-api-key"
+latte
+```
 
-### Security-prompt guardrails removed
-
-Anthropic injects system-level instructions into every conversation that constrain Claude's behavior beyond what the model itself enforces. These include hardcoded refusal patterns, injected "cyber risk" instruction blocks, and managed-settings security overlays pushed from Anthropic's servers.
-
-This build strips those injections. The model's own safety training still applies -- this just removes the extra layer of prompt-level restrictions that the CLI wraps around it.
-
-### Experimental features unlocked
-
-Claude Code ships with 88 feature flags gated behind `bun:bundle` compile-time switches. Most are disabled in the public npm release. This build unlocks all 54 flags that compile cleanly. See [Experimental Features](#experimental-features) below, or refer to [FEATURES.md](FEATURES.md) for the full audit.
-
----
-
-## Model Providers
-
-latte supports **five API providers** out of the box. Set the corresponding environment variable to switch providers -- no code changes needed.
-
-### Anthropic (Direct API) -- Default
-
-Use Anthropic's first-party API directly.
-
-| Model | ID |
-|---|---|
-| Claude Opus 4.6 | `claude-opus-4-6` |
-| Claude Sonnet 4.6 | `claude-sonnet-4-6` |
-| Claude Haiku 4.5 | `claude-haiku-4-5` |
-
-### OpenAI Codex
-
-Use OpenAI's Codex models for code generation. Requires a Codex subscription.
-
-| Model | ID |
-|---|---|
-| GPT-5.3 Codex (recommended) | `gpt-5.3-codex` |
-| GPT-5.4 | `gpt-5.4` |
-| GPT-5.4 Mini | `gpt-5.4-mini` |
+### OpenAI
 
 ```bash
 export CLAUDE_CODE_USE_OPENAI=1
+export OPENAI_API_KEY="sk-..."
 latte
 ```
 
 ### AWS Bedrock
 
-Route requests through your AWS account via Amazon Bedrock.
-
 ```bash
 export CLAUDE_CODE_USE_BEDROCK=1
-export AWS_REGION="us-east-1"   # or AWS_DEFAULT_REGION
+export AWS_REGION="us-east-1"
 latte
 ```
 
-Uses your standard AWS credentials (environment variables, `~/.aws/config`, or IAM role). Models are mapped to Bedrock ARN format automatically (e.g., `us.anthropic.claude-opus-4-6-v1`).
-
-| Variable | Purpose |
-|---|---|
-| `CLAUDE_CODE_USE_BEDROCK` | Enable Bedrock provider |
-| `AWS_REGION` / `AWS_DEFAULT_REGION` | AWS region (default: `us-east-1`) |
-| `ANTHROPIC_BEDROCK_BASE_URL` | Custom Bedrock endpoint |
-| `AWS_BEARER_TOKEN_BEDROCK` | Bearer token auth |
-| `CLAUDE_CODE_SKIP_BEDROCK_AUTH` | Skip auth (testing) |
-
-### Google Cloud Vertex AI
-
-Route requests through your GCP project via Vertex AI.
-
-```bash
-export CLAUDE_CODE_USE_VERTEX=1
-latte
-```
-
-Uses Google Cloud Application Default Credentials (`gcloud auth application-default login`). Models are mapped to Vertex format automatically (e.g., `claude-opus-4-6@latest`).
-
-### Anthropic Foundry
-
-Use Anthropic Foundry for dedicated deployments.
-
-```bash
-export CLAUDE_CODE_USE_FOUNDRY=1
-export ANTHROPIC_FOUNDRY_API_KEY="..."
-latte
-```
-
-Supports custom deployment IDs as model names.
-
-### Provider Selection Summary
-
-| Provider | Env Variable | Auth Method |
+| 提供商 | 环境变量 | 认证方式 |
 |---|---|---|
-| Anthropic (default) | -- | `ANTHROPIC_API_KEY` or OAuth |
-| OpenAI Codex | `CLAUDE_CODE_USE_OPENAI=1` | OAuth via OpenAI |
+| Anthropic | -- | `ANTHROPIC_API_KEY` 或 OAuth |
+| Kimi | `ANTHROPIC_BASE_URL` | API Key |
+| OpenAI | `CLAUDE_CODE_USE_OPENAI=1` | `OPENAI_API_KEY` |
 | AWS Bedrock | `CLAUDE_CODE_USE_BEDROCK=1` | AWS credentials |
-| Google Vertex AI | `CLAUDE_CODE_USE_VERTEX=1` | `gcloud` ADC |
-| Anthropic Foundry | `CLAUDE_CODE_USE_FOUNDRY=1` | `ANTHROPIC_FOUNDRY_API_KEY` |
 
 ---
 
-## Requirements
+## 🌏 中文本地化
 
-- **Runtime**: [Bun](https://bun.sh) >= 1.3.11
-- **OS**: macOS or Linux (Windows via WSL)
-- **Auth**: An API key or OAuth login for your chosen provider
+Latte 内置中文支持，自动检测系统语言：
+
+- **命令中文描述** - 所有 60+ 个命令都有中文描述
+- **Help 界面汉化** - 帮助菜单和快捷键提示
+- **自动语言检测** - 根据 `LANG` 或 `LC_ALL` 环境变量自动切换
+- **强制中文模式** - 设置 `SHOW_CHINESE=1` 强制显示中文
 
 ```bash
-# Install Bun if you don't have it
-curl -fsSL https://bun.sh/install | bash
+# 在中文环境下自动显示中文
+export LANG=zh_CN.UTF-8
+latte
+
+# 或强制启用中文
+export SHOW_CHINESE=1
+latte
 ```
 
 ---
 
-## Build
+## 🛠️ 构建
+
+### 要求
+
+- [Bun](https://bun.sh) >= 1.3.11
+- Git
 
 ```bash
+# 克隆仓库
 git clone https://github.com/wxj-1019/latte-code.git
-cd latte
-bun build
-./cli
+cd latte-code
+
+# 安装依赖
+bun install
+
+# 开发构建
+bun run build:dev
+
+# 生产构建
+bun run build
+
+# 运行
+./cli-dev.exe
 ```
 
-### Build Variants
+### 构建变体
 
-| Command | Output | Features | Description |
+| 命令 | 输出 | 特性 | 描述 |
 |---|---|---|---|
-| `bun run build` | `./cli` | `VOICE_MODE` only | Production-like binary |
-| `bun run build:dev` | `./cli-dev` | `VOICE_MODE` only | Dev version stamp |
-| `bun run build:dev:full` | `./cli-dev` | All 54 experimental flags | Full unlock build |
-| `bun run compile` | `./dist/cli` | `VOICE_MODE` only | Alternative output path |
+| `bun run build` | `./cli.exe` | 基础功能 | 生产构建 |
+| `bun run build:dev` | `./cli-dev.exe` | 基础功能 | 开发版本 |
+| `bun run build:dev:full` | `./cli-dev.exe` | 所有 54 个实验性功能 | 完整解锁 |
 
-### Custom Feature Flags
+---
 
-Enable specific flags without the full bundle:
+## 💻 使用方法
 
 ```bash
-# Enable just ultraplan and ultrathink
-bun run ./scripts/build.ts --feature=ULTRAPLAN --feature=ULTRATHINK
+# 交互式 REPL（默认）
+./latte.exe
 
-# Add a flag on top of the dev build
-bun run ./scripts/build.ts --dev --feature=BRIDGE_MODE
+# 单次查询模式
+./latte.exe -p "列出当前目录的文件"
+
+# 指定模型
+./latte.exe --model claude-opus-4-6
+
+# 登录
+./latte.exe /login
+
+# 查看帮助
+./latte.exe /help
 ```
 
+### 常用命令
+
+| 命令 | 中文描述 | 功能 |
+|---|---|---|
+| `/help` | 显示帮助 | 查看所有可用命令 |
+| `/login` | 登录 | 使用 API Key 或 OAuth 登录 |
+| `/config` | 配置面板 | 打开配置界面 |
+| `/cost` | 显示费用 | 查看当前会话费用 |
+| `/compact` | 压缩对话 | 节省 token |
+| `/clear` | 清除历史 | 清空对话历史 |
+| `/exit` | 退出 | 退出程序 |
+
 ---
 
-## Usage
+## 🔬 实验性功能
 
-```bash
-# Interactive REPL (default)
-./cli
+使用 `bun run build:dev:full` 构建可解锁所有 54 个实验性功能：
 
-# One-shot mode
-./cli -p "what files are in this directory?"
-
-# Specify a model
-./cli --model claude-opus-4-6
-
-# Run from source (slower startup)
-bun run dev
-
-# OAuth login
-./cli /login
-```
-
-### Environment Variables Reference
-
-| Variable | Purpose |
+| 功能 | 描述 |
 |---|---|
-| `ANTHROPIC_API_KEY` | Anthropic API key |
-| `ANTHROPIC_AUTH_TOKEN` | Auth token (alternative) |
-| `ANTHROPIC_MODEL` | Override default model |
-| `ANTHROPIC_BASE_URL` | Custom API endpoint |
-| `ANTHROPIC_DEFAULT_OPUS_MODEL` | Custom Opus model ID |
-| `ANTHROPIC_DEFAULT_SONNET_MODEL` | Custom Sonnet model ID |
-| `ANTHROPIC_DEFAULT_HAIKU_MODEL` | Custom Haiku model ID |
-| `CLAUDE_CODE_OAUTH_TOKEN` | OAuth token via env |
-| `CLAUDE_CODE_API_KEY_HELPER_TTL_MS` | API key helper cache TTL |
+| `VOICE_MODE` | 语音输入模式 |
+| `ULTRAPLAN` | 超级计划模式 |
+| `KAIROS` | 高级 AI 功能 |
+| `BRIDGE_MODE` | 远程控制模式 |
 
 ---
 
-## Experimental Features
+## 🏗️ 技术栈
 
-The `bun run build:dev:full` build enables all 54 working feature flags. Highlights:
-
-### Interaction & UI
-
-| Flag | Description |
-|---|---|
-| `ULTRAPLAN` | Remote multi-agent planning on Claude Code web (Opus-class) |
-| `ULTRATHINK` | Deep thinking mode -- type "ultrathink" to boost reasoning effort |
-| `VOICE_MODE` | Push-to-talk voice input and dictation |
-| `TOKEN_BUDGET` | Token budget tracking and usage warnings |
-| `HISTORY_PICKER` | Interactive prompt history picker |
-| `MESSAGE_ACTIONS` | Message action entrypoints in the UI |
-| `QUICK_SEARCH` | Prompt quick-search |
-| `SHOT_STATS` | Shot-distribution stats |
-
-### Agents, Memory & Planning
-
-| Flag | Description |
-|---|---|
-| `BUILTIN_EXPLORE_PLAN_AGENTS` | Built-in explore/plan agent presets |
-| `VERIFICATION_AGENT` | Verification agent for task validation |
-| `AGENT_TRIGGERS` | Local cron/trigger tools for background automation |
-| `AGENT_TRIGGERS_REMOTE` | Remote trigger tool path |
-| `EXTRACT_MEMORIES` | Post-query automatic memory extraction |
-| `COMPACTION_REMINDERS` | Smart reminders around context compaction |
-| `CACHED_MICROCOMPACT` | Cached microcompact state through query flows |
-| `TEAMMEM` | Team-memory files and watcher hooks |
-
-### Tools & Infrastructure
-
-| Flag | Description |
-|---|---|
-| `BRIDGE_MODE` | IDE remote-control bridge (VS Code, JetBrains) |
-| `BASH_CLASSIFIER` | Classifier-assisted bash permission decisions |
-| `PROMPT_CACHE_BREAK_DETECTION` | Cache-break detection in compaction/query flow |
-
-See [FEATURES.md](FEATURES.md) for the complete audit of all 88 flags, including 34 broken flags with reconstruction notes.
+- **Runtime**: [Bun](https://bun.sh) - 快速 JavaScript 运行时
+- **Language**: TypeScript
+- **UI**: [Ink](https://github.com/vadimdemedes/ink) - React for CLI
+- **Build**: 单文件可执行编译
 
 ---
 
-## Project Structure
+## 📄 许可证
 
-```
-scripts/
-  build.ts                # Build script with feature flag system
-
-src/
-  entrypoints/cli.tsx     # CLI entrypoint
-  commands.ts             # Command registry (slash commands)
-  tools.ts                # Tool registry (agent tools)
-  QueryEngine.ts          # LLM query engine
-  screens/REPL.tsx        # Main interactive UI (Ink/React)
-
-  commands/               # /slash command implementations
-  tools/                  # Agent tool implementations (Bash, Read, Edit, etc.)
-  components/             # Ink/React terminal UI components
-  hooks/                  # React hooks
-  services/               # API clients, MCP, OAuth, analytics
-    api/                  # API client + Codex fetch adapter
-    oauth/                # OAuth flows (Anthropic + OpenAI)
-  state/                  # App state store
-  utils/                  # Utilities
-    model/                # Model configs, providers, validation
-  skills/                 # Skill system
-  plugins/                # Plugin system
-  bridge/                 # IDE bridge
-  voice/                  # Voice input
-  tasks/                  # Background task management
-```
+MIT License - 详见 [LICENSE](LICENSE) 文件。
 
 ---
 
-## Tech Stack
-
-| | |
-|---|---|
-| **Runtime** | [Bun](https://bun.sh) |
-| **Language** | TypeScript |
-| **Terminal UI** | React + [Ink](https://github.com/vadimdemedes/ink) |
-| **CLI Parsing** | [Commander.js](https://github.com/tj/commander.js) |
-| **Schema Validation** | Zod v4 |
-| **Code Search** | ripgrep (bundled) |
-| **Protocols** | MCP, LSP |
-| **APIs** | Anthropic Messages, OpenAI Codex, AWS Bedrock, Google Vertex AI |
-
----
-
-## IPFS Mirror
-
-A full copy of this repository is permanently pinned on IPFS via Filecoin:
-
-| | |
-|---|---|
-| **CID** | `bafybeiegvef3dt24n2znnnmzcud2vxat7y7rl5ikz7y7yoglxappim54bm` |
-| **Gateway** | https://w3s.link/ipfs/bafybeiegvef3dt24n2znnnmzcud2vxat7y7rl5ikz7y7yoglxappim54bm |
-
-If this repo gets taken down, the code lives on.
-
----
-
-## Contributing
-
-Contributions are welcome. If you're working on restoring one of the 34 broken feature flags, check the reconstruction notes in [FEATURES.md](FEATURES.md) first -- many are close to compiling and just need a small wrapper or missing asset.
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feat/my-feature`)
-3. Commit your changes (`git commit -m 'feat: add something'`)
-4. Push to the branch (`git push origin feat/my-feature`)
-5. Open a Pull Request
-
----
-
-## License
-
-The original Claude Code source is the property of Anthropic. This fork exists because the source was publicly exposed through their npm distribution. Use at your own discretion.
+<p align="center">
+  Made with ☕ by <a href="https://github.com/wxj-1019">wxj-1019</a>
+</p>
