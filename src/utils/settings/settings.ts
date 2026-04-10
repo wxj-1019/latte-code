@@ -809,9 +809,31 @@ function loadSettingsFromDisk(): SettingsWithErrors {
  *
  * @returns Merged settings from all available sources (always returns at least empty object)
  */
+function detectSystemLanguage(): string | undefined {
+  const shouldUseChinese =
+    process.env.LANG?.startsWith('zh') ||
+    process.env.LC_ALL?.startsWith('zh') ||
+    process.env.SHOW_CHINESE === '1'
+
+  if (shouldUseChinese) {
+    return 'chinese'
+  }
+  return undefined
+}
+
 export function getInitialSettings(): SettingsJson {
   const { settings } = getSettingsWithErrors()
-  return settings || {}
+  const mergedSettings = settings || {}
+
+  // Auto-detect system language if not explicitly set
+  if (!mergedSettings.language) {
+    const detectedLang = detectSystemLanguage()
+    if (detectedLang) {
+      mergedSettings.language = detectedLang
+    }
+  }
+
+  return mergedSettings
 }
 
 /**

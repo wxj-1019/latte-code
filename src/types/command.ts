@@ -175,6 +175,7 @@ export type CommandAvailability =
 export type CommandBase = {
   availability?: CommandAvailability[]
   description: string
+  descriptionZh?: string  // 中文描述
   hasUserSpecifiedDescription?: boolean
   /** Defaults to true. Only set when the command has conditional enablement (feature flags, env checks, etc). */
   isEnabled?: () => boolean
