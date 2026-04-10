@@ -1,0 +1,8 @@
+node_modules/
+dist/
+cli
+cli.exe
+cli-dev
+cli-dev.exe
+openclaw/
+*.bun-build
