@@ -4,6 +4,8 @@ const mcp = {
   type: 'local-jsx',
   name: 'mcp',
   description: 'Manage MCP servers',
+  descriptionZh: '管理 MCP 服务器',
+  descriptionZh: '管理 MCP 服务器',
   immediate: true,
   argumentHint: '[enable|disable [server-name]]',
   load: () => import('./mcp.js'),

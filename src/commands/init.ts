@@ -233,6 +233,7 @@ const command = {
       ? 'Initialize new CLAUDE.md file(s) and optional skills/hooks with codebase documentation'
       : 'Initialize a new CLAUDE.md file with codebase documentation'
   },
+  descriptionZh: '初始化 CLAUDE.md 配置文件',
   contentLength: 0, // Dynamic content
   progressMessage: 'analyzing your codebase',
   source: 'builtin',

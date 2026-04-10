@@ -109,6 +109,7 @@ const command = {
   type: 'prompt',
   name: 'commit-push-pr',
   description: 'Commit, push, and open a PR',
+  descriptionZh: '提交并创建 PR',
   allowedTools: ALLOWED_TOOLS,
   get contentLength() {
     // Use 'main' as estimate for content length calculation

@@ -6,6 +6,8 @@ export default {
   type: 'local-jsx',
   name: 'remote-env',
   description: 'Configure the default remote environment for teleport sessions',
+  descriptionZh: '配置远程环境',
+  descriptionZh: '管理远程环境',
   isEnabled: () =>
     isClaudeAISubscriber() && isPolicyAllowed('allow_remote_sessions'),
   get isHidden() {

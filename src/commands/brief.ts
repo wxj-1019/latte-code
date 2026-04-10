@@ -48,6 +48,7 @@ const brief = {
   type: 'local-jsx',
   name: 'brief',
   description: 'Toggle brief-only mode',
+  descriptionZh: '切换精简模式',
   isEnabled: () => {
     if (feature('KAIROS') || feature('KAIROS_BRIEF')) {
       return getBriefConfig().enable_slash_command

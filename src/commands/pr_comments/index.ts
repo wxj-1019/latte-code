@@ -3,6 +3,7 @@ import { createMovedToPluginCommand } from '../createMovedToPluginCommand.js'
 export default createMovedToPluginCommand({
   name: 'pr-comments',
   description: 'Get comments from a GitHub pull request',
+  descriptionZh: '显示 PR 评论',
   progressMessage: 'fetching PR comments',
   pluginName: 'pr-comments',
   pluginCommand: 'pr-comments',

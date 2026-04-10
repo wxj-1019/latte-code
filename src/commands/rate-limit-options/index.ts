@@ -5,6 +5,8 @@ const rateLimitOptions = {
   type: 'local-jsx',
   name: 'rate-limit-options',
   description: 'Show options when rate limit is reached',
+  descriptionZh: '显示速率限制选项',
+  descriptionZh: '显示速率限制选项',
   isEnabled: () => {
     if (!isClaudeAISubscriber()) {
       return false

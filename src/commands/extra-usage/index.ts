@@ -14,6 +14,7 @@ export const extraUsage = {
   type: 'local-jsx',
   name: 'extra-usage',
   description: 'Configure extra usage to keep working when limits are hit',
+  descriptionZh: '显示额外使用信息',
   isEnabled: () => isExtraUsageAllowed() && !getIsNonInteractiveSession(),
   load: () => import('./extra-usage.js'),
 } satisfies Command

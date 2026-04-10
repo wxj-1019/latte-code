@@ -6,6 +6,8 @@ const session = {
   name: 'session',
   aliases: ['remote'],
   description: 'Show remote session URL and QR code',
+  descriptionZh: '显示远程会话信息',
+  descriptionZh: '管理会话',
   isEnabled: () => getIsRemoteMode(),
   get isHidden() {
     return !getIsRemoteMode()

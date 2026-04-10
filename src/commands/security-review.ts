@@ -199,6 +199,7 @@ export default createMovedToPluginCommand({
   name: 'security-review',
   description:
     'Complete a security review of the pending changes on the current branch',
+  descriptionZh: '安全审查待处理的更改',
   progressMessage: 'analyzing code changes for security risks',
   pluginName: 'security-review',
   pluginCommand: 'security-review',

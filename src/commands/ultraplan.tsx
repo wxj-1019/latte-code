@@ -462,6 +462,7 @@ export default {
   type: 'local-jsx',
   name: 'ultraplan',
   description: `~10–30 min · Claude Code on the web drafts an advanced plan you can edit and approve. See ${CCR_TERMS_URL}`,
+  descriptionZh: '超级计划模式',
   argumentHint: '<prompt>',
   isEnabled: () => true,
   load: () => Promise.resolve({

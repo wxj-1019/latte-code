@@ -4,6 +4,7 @@ import { AGENT_TOOL_NAME } from '../tools/AgentTool/constants.js';
 const statusline = {
   type: 'prompt',
   description: "Set up Claude Code's status line UI",
+  descriptionZh: '设置状态栏 UI',
   contentLength: 0,
   // Dynamic content
   aliases: [],

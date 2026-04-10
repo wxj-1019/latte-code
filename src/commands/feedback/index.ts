@@ -8,6 +8,8 @@ const feedback = {
   type: 'local-jsx',
   name: 'feedback',
   description: `Submit feedback about Claude Code`,
+  descriptionZh: '提交反馈',
+  descriptionZh: '发送反馈',
   argumentHint: '[report]',
   isEnabled: () =>
     !(

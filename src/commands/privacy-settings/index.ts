@@ -5,6 +5,8 @@ const privacySettings = {
   type: 'local-jsx',
   name: 'privacy-settings',
   description: 'View and update your privacy settings',
+  descriptionZh: '管理隐私设置',
+  descriptionZh: '管理隐私设置',
   isEnabled: () => {
     return isConsumerSubscriber()
   },

@@ -8,6 +8,7 @@ export default {
   get description() {
     return `Set the AI model for Claude Code (currently ${renderModelName(getMainLoopModel())})`
   },
+  descriptionZh: '设置 AI 模型',
   argumentHint: '[model]',
   get immediate() {
     return shouldInferenceConfigCommandBeImmediate()

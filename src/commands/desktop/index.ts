@@ -15,6 +15,8 @@ const desktop = {
   name: 'desktop',
   aliases: ['app'],
   description: 'Continue the current session in Claude Desktop',
+  descriptionZh: '在 Claude 桌面版中继续会话',
+  descriptionZh: 'Claude 桌面版集成',
   availability: ['claude-ai'],
   isEnabled: isSupportedPlatform,
   get isHidden() {

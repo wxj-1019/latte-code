@@ -7,6 +7,8 @@ const thinkbackPlay = {
   type: 'local',
   name: 'thinkback-play',
   description: 'Play the thinkback animation',
+  descriptionZh: '播放年度回顾动画',
+  descriptionZh: '播放思考回溯',
   isEnabled: () =>
     checkStatsigFeatureGate_CACHED_MAY_BE_STALE('tengu_thinkback'),
   isHidden: true,

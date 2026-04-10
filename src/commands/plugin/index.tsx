@@ -4,6 +4,7 @@ const plugin = {
   name: 'plugin',
   aliases: ['plugins', 'marketplace'],
   description: 'Manage Claude Code plugins',
+  descriptionZh: '管理插件',
   immediate: true,
   load: () => import('./plugin.js')
 } satisfies Command;

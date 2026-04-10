@@ -4,6 +4,8 @@ const help = {
   type: 'local-jsx',
   name: 'help',
   description: 'Show help and available commands',
+  descriptionZh: '显示帮助和可用命令',
+  descriptionZh: '显示帮助和可用命令',
   load: () => import('./help.js'),
 } satisfies Command
 

@@ -9,6 +9,8 @@ const cost = {
   type: 'local',
   name: 'cost',
   description: 'Show the total cost and duration of the current session',
+  descriptionZh: '显示当前会话的费用和时长',
+  descriptionZh: '显示当前会话的费用和时长',
   get isHidden() {
     // Keep visible for Ants even if they're subscribers (they see cost breakdowns)
     if (process.env.USER_TYPE === 'ant') {

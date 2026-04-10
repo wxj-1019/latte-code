@@ -5,6 +5,8 @@ export default {
   type: 'local-jsx',
   name: 'effort',
   description: 'Set effort level for model usage',
+  descriptionZh: '设置努力程度',
+  descriptionZh: '调整当前模型的努力程度',
   argumentHint: '[low|medium|high|max|auto]',
   get immediate() {
     return shouldInferenceConfigCommandBeImmediate()

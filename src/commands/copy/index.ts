@@ -9,6 +9,7 @@ const copy = {
   name: 'copy',
   description:
     "Copy Claude's last response to clipboard (or /copy N for the Nth-latest)",
+  descriptionZh: '复制最后一次响应到剪贴板',
   load: () => import('./copy.js'),
 } satisfies Command
 

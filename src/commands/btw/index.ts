@@ -5,6 +5,7 @@ const btw = {
   name: 'btw',
   description:
     'Ask a quick side question without interrupting the main conversation',
+  descriptionZh: '快速备忘命令',
   immediate: true,
   argumentHint: '<question>',
   load: () => import('./btw.js'),

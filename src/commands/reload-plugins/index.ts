@@ -8,6 +8,8 @@ const reloadPlugins = {
   type: 'local',
   name: 'reload-plugins',
   description: 'Activate pending plugin changes in the current session',
+  descriptionZh: '重新加载插件',
+  descriptionZh: '重新加载插件',
   // SDK callers use query.reloadPlugins() (control request) instead of
   // sending this as a text prompt — that returns structured data
   // (commands, agents, plugins, mcpServers) for UI updates.

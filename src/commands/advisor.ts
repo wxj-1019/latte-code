@@ -97,6 +97,7 @@ const advisor = {
   type: 'local',
   name: 'advisor',
   description: 'Configure the advisor model',
+  descriptionZh: '配置顾问模型',
   argumentHint: '[<model>|off]',
   isEnabled: () => canUserConfigureAdvisor(),
   get isHidden() {

@@ -5,6 +5,7 @@ const command = {
   name: 'init-verifiers',
   description:
     'Create verifier skill(s) for automated verification of code changes',
+  descriptionZh: '创建验证器技能',
   contentLength: 0, // Dynamic content
   progressMessage: 'analyzing your project and creating verifier skills',
   source: 'builtin',

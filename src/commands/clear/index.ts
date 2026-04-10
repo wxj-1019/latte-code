@@ -11,6 +11,8 @@ const clear = {
   type: 'local',
   name: 'clear',
   description: 'Clear conversation history and free up context',
+  descriptionZh: '清除对话历史',
+  descriptionZh: '清除对话历史并释放上下文空间',
   aliases: ['reset', 'new'],
   supportsNonInteractive: false, // Should just create a new session
   load: () => import('./clear.js'),

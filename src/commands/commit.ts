@@ -58,6 +58,7 @@ const command = {
   type: 'prompt',
   name: 'commit',
   description: 'Create a git commit',
+  descriptionZh: '创建 Git 提交',
   allowedTools: ALLOWED_TOOLS,
   contentLength: 0, // Dynamic content
   progressMessage: 'creating commit',
