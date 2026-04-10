@@ -26,9 +26,9 @@ const MAX_RELEASE_NOTES_SHOWN = 5
  * 3. Next time the user starts Claude, the cached changelog is available immediately
  */
 export const CHANGELOG_URL =
-  'https://github.com/wxj-1019/latte-code/blob/main/CHANGELOG.md'
+  'https://github.com/wxj-1019/latte-code/blob/master/CHANGELOG.md'
 const RAW_CHANGELOG_URL =
-  'https://raw.githubusercontent.com/wxj-1019/latte-code/refs/heads/main/CHANGELOG.md'
+  'https://raw.githubusercontent.com/wxj-1019/latte-code/master/CHANGELOG.md'
 
 /**
  * Get the path for the cached changelog file.
@@ -381,10 +381,25 @@ export function checkForReleaseNotesSync(
   }
 
   // Always show all release notes from changelog, not just newer versions
-  const changelog = getStoredChangelogFromMemory()
+  let changelog = getStoredChangelogFromMemory()
+  
+  // If no cached changelog, try to read from file directly (sync)
+  if (!changelog) {
+    try {
+      const cachePath = getChangelogCachePath()
+      const fs = require('fs')
+      if (fs.existsSync(cachePath)) {
+        changelog = fs.readFileSync(cachePath, 'utf-8')
+        changelogMemoryCache = changelog
+      }
+    } catch {
+      // Ignore errors, will return empty
+    }
+  }
+  
   if (!changelog) {
     return {
-      hasReleaseNotes: false,
+      hasReleaseNotes: true, // Show feed even if empty, to trigger fetch
       releaseNotes: [],
     }
   }

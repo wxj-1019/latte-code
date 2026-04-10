@@ -380,16 +380,18 @@ export async function setup(
   void prefetchApiKeyFromApiKeyHelperIfSafe(getIsNonInteractiveSession()) // Prefetch safely - only executes if trust already confirmed
   profileCheckpoint('setup_after_prefetch')
 
-  // Pre-fetch data for Logo v2 - await to ensure it's ready before logo renders.
+  // Pre-fetch data for Logo v2 - non-blocking to avoid slow startup
   // --bare / SIMPLE: skip — release notes are interactive-UI display data,
   // and getRecentActivity() reads up to 10 session JSONL files.
   if (!isBareMode()) {
-    const { hasReleaseNotes } = await checkForReleaseNotes(
-      getGlobalConfig().lastReleaseNotesSeen,
-    )
-    if (hasReleaseNotes) {
-      await getRecentActivity()
-    }
+    // Fire and forget - don't await to avoid blocking startup
+    void checkForReleaseNotes(getGlobalConfig().lastReleaseNotesSeen)
+      .then(({ hasReleaseNotes }) => {
+        if (hasReleaseNotes) {
+          void getRecentActivity()
+        }
+      })
+      .catch(() => {})
   }
 
   // If permission mode is set to bypass, verify we're in a safe environment

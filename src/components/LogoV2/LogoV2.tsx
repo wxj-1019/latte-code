@@ -72,12 +72,17 @@ export function LogoV2() {
   const agent = useAppState(_temp);
   const effortValue = useAppState(_temp2);
   const config = getGlobalConfig();
-  let changelog;
-  try {
-    changelog = getRecentReleaseNotesSync(3, MACRO.VERSION, config.lastReleaseNotesSeen);
-  } catch {
-    changelog = [];
-  }
+  // Hardcoded changelog for Latte (avoids network blocking on startup)
+  const changelog = [
+    'Chinese localization support for all commands',
+    'Auto-detect system language and respond in Chinese', 
+    'Localized help command with Chinese translations',
+    'Rebranded to "Latte"',
+    'Custom welcome message: "欢迎回来，码奸"'
+  ].slice(0, 3);
+  
+  const hasReleaseNotes = true;
+  
   const [announcement] = useState(() => {
     const announcements = getInitialSettings().companyAnnouncements;
     if (!announcements || announcements.length === 0) {
@@ -85,15 +90,6 @@ export function LogoV2() {
     }
     return config.numStartups === 1 ? announcements[0] : announcements[Math.floor(Math.random() * announcements.length)];
   });
-  const {
-    hasReleaseNotes,
-    releaseNotes: changelogFromCheck
-  } = checkForReleaseNotesSync(config.lastReleaseNotesSeen);
-  
-  // Use release notes from checkForReleaseNotesSync if available
-  if (changelogFromCheck && changelogFromCheck.length > 0) {
-    changelog = changelogFromCheck.slice(0, 3);
-  }
   
   let t2;
   if ($[2] === Symbol.for("react.memo_cache_sentinel")) {
