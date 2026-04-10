@@ -86,8 +86,15 @@ export function LogoV2() {
     return config.numStartups === 1 ? announcements[0] : announcements[Math.floor(Math.random() * announcements.length)];
   });
   const {
-    hasReleaseNotes
+    hasReleaseNotes,
+    releaseNotes: changelogFromCheck
   } = checkForReleaseNotesSync(config.lastReleaseNotesSeen);
+  
+  // Use release notes from checkForReleaseNotesSync if available
+  if (changelogFromCheck && changelogFromCheck.length > 0) {
+    changelog = changelogFromCheck.slice(0, 3);
+  }
+  
   let t2;
   if ($[2] === Symbol.for("react.memo_cache_sentinel")) {
     t2 = () => {

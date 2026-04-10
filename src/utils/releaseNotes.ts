@@ -338,16 +338,19 @@ export async function checkForReleaseNotes(
     fetchAndStoreChangelog().catch(error => logError(toError(error)))
   }
 
-  const releaseNotes = getRecentReleaseNotes(
-    currentVersion,
-    lastSeenVersion,
-    cachedChangelog,
-  )
-  const hasReleaseNotes = releaseNotes.length > 0
+  // Parse changelog to get all notes, not just newer versions
+  const parsedNotes = parseChangelog(cachedChangelog)
+  const allNotes = Object.entries(parsedNotes)
+    .sort(([versionA], [versionB]) => (gt(versionB, versionA) ? -1 : 1))
+    .flatMap(([, notes]) => notes)
+    .filter(Boolean)
+    .slice(0, MAX_RELEASE_NOTES_SHOWN)
+  
+  const hasReleaseNotes = allNotes.length > 0
 
   return {
     hasReleaseNotes,
-    releaseNotes,
+    releaseNotes: allNotes,
   }
 }
 
@@ -377,9 +380,23 @@ export function checkForReleaseNotesSync(
     }
   }
 
-  const releaseNotes = getRecentReleaseNotes(currentVersion, lastSeenVersion)
+  // Always show all release notes from changelog, not just newer versions
+  const changelog = getStoredChangelogFromMemory()
+  if (!changelog) {
+    return {
+      hasReleaseNotes: false,
+      releaseNotes: [],
+    }
+  }
+  
+  const parsedNotes = parseChangelog(changelog)
+  const allNotes = Object.entries(parsedNotes)
+    .sort(([versionA], [versionB]) => (gt(versionB, versionA) ? -1 : 1))
+    .flatMap(([, notes]) => notes)
+    .filter(Boolean)
+  
   return {
-    hasReleaseNotes: releaseNotes.length > 0,
-    releaseNotes,
+    hasReleaseNotes: allNotes.length > 0,
+    releaseNotes: allNotes,
   }
 }
