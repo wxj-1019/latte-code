@@ -5,3 +5,4 @@ cli-dev
 cli-dev.exe
 openclaw/
 *.bun-build
+.idea/
