@@ -255,7 +255,8 @@ export const INTERNAL_ONLY_COMMANDS = [
 
 // Declared as a function so that we don't run this until getCommands is called,
 // since underlying functions read from config, which can't be read at module initialization time
-const COMMANDS = memoize((): Command[] => [
+const COMMANDS = memoize((): Command[] => {
+  const result = [
   addDir,
   advisor,
   agents,
@@ -345,7 +346,9 @@ const COMMANDS = memoize((): Command[] => [
   ...(process.env.USER_TYPE === 'ant' && !process.env.IS_DEMO
     ? INTERNAL_ONLY_COMMANDS
     : []),
-])
+  ]
+  return result
+})
 
 export const builtInCommandNames = memoize(
   (): Set<string> =>
