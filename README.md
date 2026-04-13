@@ -54,6 +54,7 @@ curl -fsSL https://raw.githubusercontent.com/wxj-1019/latte-code/main/install.sh
 - [特性](#特性)
 - [快速安装](#快速安装)
 - [模型提供商](#模型提供商)
+- [配置文件](#配置文件)
 - [中文本地化](#中文本地化)
 - [构建](#构建)
 - [使用方法](#使用方法)
@@ -192,6 +193,53 @@ latte
 | OpenAI Codex | Codex 协议 | OAuth via OpenAI | ✅ |
 | AWS Bedrock | Anthropic 原生 | AWS credentials | ✅ |
 | Google Vertex AI | Anthropic 原生 | `gcloud auth` | ✅ |
+
+### 配置文件
+
+除了环境变量，Latte 还支持通过配置文件设置模型参数（优先级：环境变量 > 项目配置 > 用户配置）：
+
+#### 配置文件位置
+
+| 类型 | 路径 | 说明 |
+|------|------|------|
+| **用户级配置** | `%USERPROFILE%\.claude\settings.json` | 全局配置，所有项目通用 |
+| **项目级配置** | `.claude\settings.local.json` | 仅当前项目生效 |
+
+#### 配置文件格式
+
+```json
+{
+  "model": "kimi-k2-0711-preview",
+  "customBaseURL": "https://api.moonshot.cn/v1",
+  "apiKey": "sk-your-api-key"
+}
+```
+
+#### 配置示例（Kimi/Moonshot）
+
+**PowerShell 设置环境变量（临时）：**
+```powershell
+$env:LATTE_API_KEY = "sk-your-moonshot-api-key"
+$env:LATTE_BASE_URL = "https://api.moonshot.cn/v1"
+$env:LATTE_MODEL = "kimi-k2-0711-preview"
+```
+
+**PowerShell 设置环境变量（永久）：**
+```powershell
+[Environment]::SetEnvironmentVariable("LATTE_API_KEY", "sk-your-api-key", "User")
+[Environment]::SetEnvironmentVariable("LATTE_BASE_URL", "https://api.moonshot.cn/v1", "User")
+[Environment]::SetEnvironmentVariable("LATTE_MODEL", "kimi-k2-0711-preview", "User")
+```
+
+#### 常见问题
+
+**401 Authentication Error**
+- 原因：缺少 `LATTE_API_KEY` 或 `LATTE_BASE_URL`
+- 解决：确保设置了完整的三个环境变量或配置文件
+
+**模型无法识别**
+- 原因：模型名称格式不正确
+- 解决：查阅提供商文档获取正确的模型 ID
 
 ### 注意事项
 
