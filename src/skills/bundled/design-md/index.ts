@@ -89,48 +89,11 @@ English:  /design-md get apple
 English:  /design-md review stripe --file src/pages/Login.tsx`
 
 /**
- * Command aliases mapping (Chinese -> English)
- */
-const COMMAND_ALIASES: Record<string, string> = {
-  // 基础命令
-  '获取': 'get',
-  'get': 'get',
-  '搜索': 'search',
-  'search': 'search',
-  '列表': 'list',
-  'list': 'list',
-  '分析': 'analyze',
-  'analyze': 'analyze',
-  '生成': 'generate',
-  'generate': 'generate',
-  '对比': 'compare',
-  'compare': 'compare',
-  '提取': 'extract',
-  'extract': 'extract',
-  
-  // 设计顾问命令
-  '审查': 'review',
-  'review': 'review',
-  '检查': 'review',
-  '建议': 'suggest',
-  'suggest': 'suggest',
-  '推荐': 'suggest',
-  '规划': 'plan',
-  'plan': 'plan',
-  '设计': 'plan',
-  '应用': 'apply',
-  'apply': 'apply',
-  '使用': 'apply',
-}
-
-/**
  * Parse command arguments into capability input
- * Supports both English and Chinese command names
  */
 function parseArgs(args: string): { action: string; params: Record<string, string> } {
   const parts = args.trim().split(/\s+/)
-  const rawAction = parts[0] || 'list'
-  const action = COMMAND_ALIASES[rawAction] || rawAction
+  const action = parts[0] || 'list'
   const params: Record<string, string> = {}
 
   for (let i = 1; i < parts.length; i++) {
@@ -289,57 +252,45 @@ function buildCapabilityInput(
 }
 
 /**
- * Generate bilingual help message
+ * Generate help message with English commands and Chinese translations
  */
 function generateHelpMessage(action: string): string {
-  return `未知命令 / Unknown action: ${action}
+  return `Unknown action: ${action}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📋 可用命令 / Available Commands
+📋 Available Commands | 可用命令
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-【基础命令 / Basic Commands】
-  获取 / get <brand>              - 获取设计系统 / Fetch a design system
-  搜索 / search <query>           - 搜索设计系统 / Search design systems
-  列表 / list                     - 列出所有品牌 / List all available brands
-  分析 / analyze <brand>          - 分析设计系统 / Analyze design system
-  生成 / generate <brand>         - 生成代码 / Generate code
-  对比 / compare <brands>         - 对比设计系统 / Compare design systems
-  提取 / extract <brand>          - 提取设计元素 / Extract design elements
+Basic Commands | 基础命令:
+  get <brand>          - Fetch a design system | 获取设计系统
+  search <query>       - Search design systems | 搜索设计系统
+  list                 - List all available brands | 列出所有品牌
+  analyze <brand>      - Analyze design system | 分析设计系统
+  generate <brand>     - Generate code | 生成代码
+  compare <brands>     - Compare design systems | 对比设计系统
+  extract <brand>      - Extract design elements | 提取设计元素
 
-【设计顾问 / Design Consultant】
-  审查 / review <brand>           - 审查设计合规性 / Review design compliance
-  建议 / suggest <brand>          - 获取设计建议 / Get design suggestions
-  规划 / plan <brand>             - 创建设计方案 / Create design plan
-  应用 / apply <brand>            - 应用设计系统 / Apply design to component
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🔧 常用选项 / Common Options
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  --format <format>              - 输出格式: json|markdown|html
-  --type <type>                  - 类型: colors|typography|accessibility|full
-  --output <output>              - 输出: css|tailwind|scss|styled-components
-  --file <path>                  - 文件路径 / File path
-  --context <desc>               - 上下文描述 / Context description
-  --page-type <type>             - 页面类型: landing|dashboard|form|list|detail
-  --component <type>             - 组件类型: button|card|input|modal
-  --variants <list>              - 变体列表 / Variants list (comma-separated)
+Design Consultant | 设计顾问:
+  review <brand>       - Review design compliance | 审查设计合规性
+  suggest <brand>      - Get design suggestions | 获取设计建议
+  plan <brand>         - Create design plan | 创建设计方案
+  apply <brand>        - Apply design to component | 应用设计系统
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-💡 使用示例 / Examples
+🔧 Common Options | 常用选项
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  --format <format>    - Output format | 输出格式: json|markdown|html
+  --type <type>        - Analysis type | 类型: colors|typography|accessibility|full
+  --output <output>    - Output type | 输出: css|tailwind|scss|styled-components
+  --file <path>        - File path | 文件路径
+  --context <desc>     - Context description | 上下文描述
+  --page-type <type>   - Page type | 页面类型: landing|dashboard|form|list|detail
+  --component <type>   - Component type | 组件类型: button|card|input|modal
+  --variants <list>    - Variants list | 变体列表 (comma-separated)
 
-中文示例 / Chinese Examples:
-  /design-md 获取 apple
-  /design-md 搜索 金融科技
-  /design-md 分析 stripe --type 颜色
-  /design-md 生成 linear --output tailwind
-  /design-md 审查 stripe --file src/pages/Login.tsx
-  /design-md 建议 linear --context "创建仪表盘侧边栏"
-  /design-md 规划 stripe --page-type dashboard --description "支付仪表盘"
-  /design-md 应用 stripe --component button --variants primary,secondary
-
-English Examples:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+💡 Examples | 使用示例
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   /design-md get apple
   /design-md search fintech
   /design-md analyze stripe --type colors
