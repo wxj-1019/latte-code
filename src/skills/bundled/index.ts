@@ -27,7 +27,8 @@ export function initBundledSkills(): void {
   registerKeybindingsSkill()
   registerVerifySkill()
   registerDebugSkill()
-  registerDesignMdSkill()
+  // TEMPORARY: design-md disabled due to auth conflicts
+  // registerDesignMdSkill()
   registerLoremIpsumSkill()
   registerSkillifySkill()
   registerRememberSkill()
