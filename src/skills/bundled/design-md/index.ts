@@ -368,13 +368,8 @@ function registerDesignMdSkill(): void {
     descriptionZh: SKILL_DESCRIPTION_ZH,
     argumentHint: '<action> [target] [--option value]',
     userInvocable: true,
-    getPromptForCommand: generatePrompt,
-    // Include reference files for the skill
-    files: {
-      'README.md': generateReadme(),
-      'capabilities.md': generateCapabilitiesDoc(),
-      'examples.md': generateExamplesDoc()
-    }
+    getPromptForCommand: generatePrompt
+    // Note: files removed to avoid potential auth conflicts
   })
 }
 
