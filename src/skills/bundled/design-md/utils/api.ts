@@ -1,9 +1,9 @@
 /**
  * Design-MD API Client
  * Handles all external API calls to the getdesign.md service
+ * Uses native fetch (Bun compatible)
  */
 
-import { request } from 'undici'
 import type { DesignSystem, FetchInput, FetchOutput } from '../types'
 
 const BASE_URL = 'https://getdesign.md'
@@ -18,7 +18,7 @@ export async function fetchDesignSystem(input: FetchInput): Promise<FetchOutput>
     const normalizedBrand = normalizeBrandName(brand)
     const url = `${BASE_URL}/${normalizedBrand}/design-md`
 
-    const response = await request(url, {
+    const response = await fetch(url, {
       method: 'GET',
       headers: {
         'User-Agent': 'Claude-Code-Design-MD-Skill/1.0',
@@ -26,7 +26,7 @@ export async function fetchDesignSystem(input: FetchInput): Promise<FetchOutput>
       }
     })
 
-    if (response.statusCode === 404) {
+    if (response.status === 404) {
       return {
         success: false,
         brand: normalizedBrand,
@@ -36,17 +36,17 @@ export async function fetchDesignSystem(input: FetchInput): Promise<FetchOutput>
       }
     }
 
-    if (response.statusCode !== 200) {
+    if (response.status !== 200) {
       return {
         success: false,
         brand: normalizedBrand,
         data: '',
         format,
-        error: `Failed to fetch design system: HTTP ${response.statusCode}`
+        error: `Failed to fetch design system: HTTP ${response.status}`
       }
     }
 
-    const content = await response.body.text()
+    const content = await response.text()
     const previewUrl = `${BASE_URL}/${normalizedBrand}/preview${theme === 'dark' ? '-dark' : ''}.html`
 
     if (format === 'json') {

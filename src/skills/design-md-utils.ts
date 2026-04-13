@@ -1,5 +1,4 @@
-import { request } from 'undici'
-
+// Use native fetch (Bun compatible)
 const BASE_URL = 'https://getdesign.md'
 
 // Complete brand categorization from awesome-design-md
@@ -56,7 +55,7 @@ export async function fetchDesignSystem(brand: string, format: 'markdown' | 'jso
     const normalizedBrand = normalizeBrandName(brand)
     const url = `${BASE_URL}/${normalizedBrand}/design-md`
 
-    const response = await request(url, {
+    const response = await fetch(url, {
       method: 'GET',
       headers: {
         'User-Agent': 'Claude-Code-Design-MD-Skill/1.0',
@@ -64,15 +63,15 @@ export async function fetchDesignSystem(brand: string, format: 'markdown' | 'jso
       }
     })
 
-    if (response.statusCode === 404) {
+    if (response.status === 404) {
       throw new Error(`Design system not found for: ${brand}. Use /design-md list to see available brands.`)
     }
 
-    if (response.statusCode !== 200) {
-      throw new Error(`Failed to fetch design system: HTTP ${response.statusCode}`)
+    if (response.status !== 200) {
+      throw new Error(`Failed to fetch design system: HTTP ${response.status}`)
     }
 
-    const content = await response.body.text()
+    const content = await response.text()
 
     if (format === 'json') {
       return {
