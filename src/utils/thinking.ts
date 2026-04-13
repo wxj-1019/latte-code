@@ -157,6 +157,13 @@ export function shouldEnableThinkingByDefault(): boolean {
   // the model launch DRI and research. This can greatly affect model quality and
   // bashing.
 
+  // Disable thinking for 3rd party providers (OpenAI compatible) as they don't
+  // support Claude's thinking/reasoning mode
+  const provider = getAPIProvider()
+  if (provider === 'openai') {
+    return false
+  }
+
   // Enable thinking by default unless explicitly disabled.
   return true
 }
