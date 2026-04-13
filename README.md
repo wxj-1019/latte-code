@@ -65,32 +65,113 @@ curl -fsSL https://raw.githubusercontent.com/wxj-1019/latte-code/main/install.sh
 
 ## 🤖 模型提供商
 
-Latte 支持多个 API 提供商，通过环境变量切换：
+Latte 支持多个 API 提供商，推荐通过交互式配置或环境变量切换。
 
-### Anthropic（默认）
+### 交互式配置（推荐）
+
+启动 Latte 后在认证界面选择 **"自定义 API 接入"**，按提示输入 Base URL、API Key 和模型名称即可，配置自动持久化。
+
+### 环境变量配置
+
+#### 核心环境变量
+
+| 环境变量 | 说明 | 示例 |
+|---|---|---|
+| `LATTE_API_KEY` 或 `DOGE_API_KEY` | 第三方模型 API Key | `sk-your-api-key` |
+| `LATTE_BASE_URL` 或 `ANTHROPIC_BASE_URL` | API Base URL（不带路径后缀） | `https://api.deepseek.com` |
+| `LATTE_MODEL` 或 `ANTHROPIC_MODEL` | 模型名称 | `deepseek-chat` |
+| `CLAUDE_CODE_COMPATIBLE_API_PROVIDER` | 协议类型（仅 `openai` 可选） | `openai` |
+
+> `LATTE_*` 和 `DOGE_*` / `ANTHROPIC_*` 两组变量均可使用，`LATTE_*` 优先级更高。
+
+#### Anthropic（默认）
 
 ```bash
+# PowerShell
+$env:ANTHROPIC_API_KEY = "sk-ant-..."
+./cli-dev
+
+# Bash
 export ANTHROPIC_API_KEY="sk-ant-..."
-latte
+./cli-dev
 ```
 
-### Kimi（推荐）
+#### DeepSeek
 
 ```bash
-export ANTHROPIC_BASE_URL="https://api.moonshot.cn/v1"
-export ANTHROPIC_API_KEY="your-kimi-api-key"
-latte
+# PowerShell
+$env:LATTE_API_KEY = "sk-your-deepseek-api-key"
+$env:LATTE_BASE_URL = "https://api.deepseek.com"
+$env:LATTE_MODEL = "deepseek-chat"
+$env:CLAUDE_CODE_COMPATIBLE_API_PROVIDER = "openai"
+./cli-dev
 ```
 
-### OpenAI
+| 模型 | 说明 |
+|---|---|
+| `deepseek-chat` | 通用对话模型（DeepSeek-V3），推荐日常使用 |
+| `deepseek-reasoner` | 推理模型（DeepSeek-R1），支持思维链输出 |
+
+#### Kimi（Moonshot）
+
+```bash
+# PowerShell
+$env:LATTE_API_KEY = "sk-your-moonshot-api-key"
+$env:LATTE_BASE_URL = "https://api.moonshot.cn/v1"
+$env:LATTE_MODEL = "moonshot-v1-8k"
+$env:CLAUDE_CODE_COMPATIBLE_API_PROVIDER = "openai"
+./cli-dev
+```
+
+| 模型 | 说明 |
+|---|---|
+| `moonshot-v1-8k` | 8K 上下文 |
+| `moonshot-v1-32k` | 32K 上下文 |
+| `moonshot-v1-128k` | 128K 长上下文 |
+
+#### 智谱 GLM
+
+```bash
+# PowerShell
+$env:LATTE_API_KEY = "your-zhipu-api-key"
+$env:LATTE_BASE_URL = "https://open.bigmodel.cn/api/paas/v4"
+$env:LATTE_MODEL = "glm-4-flash"
+$env:CLAUDE_CODE_COMPATIBLE_API_PROVIDER = "openai"
+./cli-dev
+```
+
+#### 通义千问（Qwen）
+
+```bash
+# PowerShell
+$env:LATTE_API_KEY = "sk-your-dashscope-api-key"
+$env:LATTE_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+$env:LATTE_MODEL = "qwen-plus"
+$env:CLAUDE_CODE_COMPATIBLE_API_PROVIDER = "openai"
+./cli-dev
+```
+
+#### Ollama 本地模型
+
+```bash
+# PowerShell
+$env:LATTE_API_KEY = "ollama"
+$env:LATTE_BASE_URL = "http://localhost:11434/v1"
+$env:LATTE_MODEL = "qwen2.5-coder:7b"
+$env:CLAUDE_CODE_COMPATIBLE_API_PROVIDER = "openai"
+./cli-dev
+```
+
+> Ollama 不验证 API Key，可填任意非空字符串。
+
+#### OpenAI Codex
 
 ```bash
 export CLAUDE_CODE_USE_OPENAI=1
-export OPENAI_API_KEY="sk-..."
 latte
 ```
 
-### AWS Bedrock
+#### AWS Bedrock
 
 ```bash
 export CLAUDE_CODE_USE_BEDROCK=1
@@ -98,12 +179,25 @@ export AWS_REGION="us-east-1"
 latte
 ```
 
-| 提供商 | 环境变量 | 认证方式 |
-|---|---|---|
-| Anthropic | -- | `ANTHROPIC_API_KEY` 或 OAuth |
-| Kimi | `ANTHROPIC_BASE_URL` | API Key |
-| OpenAI | `CLAUDE_CODE_USE_OPENAI=1` | `OPENAI_API_KEY` |
-| AWS Bedrock | `CLAUDE_CODE_USE_BEDROCK=1` | AWS credentials |
+### 所有提供商汇总
+
+| 提供商 | 协议 | 认证方式 | Tool Use |
+|---|---|---|---|
+| Anthropic | Anthropic 原生 | `ANTHROPIC_API_KEY` 或 OAuth | ✅ |
+| DeepSeek | OpenAI 兼容 | `LATTE_API_KEY` | ✅ |
+| Kimi | OpenAI 兼容 | `LATTE_API_KEY` | ✅ |
+| 智谱 GLM | OpenAI 兼容 | `LATTE_API_KEY` | ✅ |
+| 通义千问 | OpenAI 兼容 | `LATTE_API_KEY` | ✅ |
+| Ollama | OpenAI 兼容 | 任意非空字符串 | ⚠️ 取决于模型 |
+| OpenAI Codex | Codex 协议 | OAuth via OpenAI | ✅ |
+| AWS Bedrock | Anthropic 原生 | AWS credentials | ✅ |
+| Google Vertex AI | Anthropic 原生 | `gcloud auth` | ✅ |
+
+### 注意事项
+
+- `LATTE_BASE_URL` **不要**包含 `/chat/completions` 后缀，程序会自动拼接
+- Thinking 模式会根据模型自动禁用，第三方模型无需手动配置
+- 详细接入指南见 [`docs/custom-model-guide.md`](docs/custom-model-guide.md)
 
 ---
 
