@@ -99,8 +99,15 @@ export function modelSupportsThinking(model: string): boolean {
   }
   // IMPORTANT: Do not change thinking support without notifying the model
   // launch DRI and research. This can greatly affect model quality and bashing.
-  const canonical = getCanonicalName(model)
+  
+  // CRITICAL: OpenAI-compatible providers (Kimi, DeepSeek, etc.) do not support
+  // Claude's thinking mode. This prevents "reasoning_content is missing" errors.
   const provider = getAPIProvider()
+  if (provider === 'openai') {
+    return false
+  }
+  
+  const canonical = getCanonicalName(model)
   // 1P and Foundry: all Claude 4+ models (including Haiku 4.5)
   if (provider === 'foundry' || provider === 'firstParty') {
     return !canonical.includes('claude-3-')
@@ -144,6 +151,14 @@ export function modelSupportsAdaptiveThinking(model: string): boolean {
 }
 
 export function shouldEnableThinkingByDefault(): boolean {
+  // CRITICAL: Disable thinking for 3rd party providers (OpenAI compatible) 
+  // as they don't support Claude's thinking/reasoning mode.
+  // This prevents errors like "reasoning_content is missing" on Kimi, etc.
+  const provider = getAPIProvider()
+  if (provider === 'openai') {
+    return false
+  }
+
   if (process.env.MAX_THINKING_TOKENS) {
     return parseInt(process.env.MAX_THINKING_TOKENS, 10) > 0
   }
@@ -156,13 +171,6 @@ export function shouldEnableThinkingByDefault(): boolean {
   // IMPORTANT: Do not change default thinking enabled value without notifying
   // the model launch DRI and research. This can greatly affect model quality and
   // bashing.
-
-  // Disable thinking for 3rd party providers (OpenAI compatible) as they don't
-  // support Claude's thinking/reasoning mode
-  const provider = getAPIProvider()
-  if (provider === 'openai') {
-    return false
-  }
 
   // Enable thinking by default unless explicitly disabled.
   return true
