@@ -1,3 +1,47 @@
+# Design-MD Atomic Capability Module
+
+## Summary
+This update introduces the **design-md** skill - an AI-callable atomic capability module for frontend design tasks. It provides structured access to 66+ brand design systems from the awesome-design-md collection, with powerful design consultant features to review, suggest, plan, and apply design systems to your projects.
+
+## Key Changes
+
+### 1. Design System Access (`design-md/`)
+- **Fetch Capability**: Retrieve complete or partial design systems in JSON/Markdown/HTML formats
+- **Search Capability**: Discover design systems by category (AI platforms, fintech, SaaS, etc.) or keyword
+- **66+ Brand Catalog**: Including Apple, Stripe, Linear, Google Material, Vercel, and more
+
+### 2. Design Analysis & Generation
+- **Analyze Capability**: Deep analysis of colors, typography, and accessibility compliance
+- **Generate Capability**: Export design tokens to CSS, Tailwind, SCSS, and styled-components
+- **Compare Capability**: Side-by-side comparison of multiple design systems with similarity scoring
+- **Extract Capability**: Export to Figma tokens, Sketch, and Adobe XD formats
+
+### 3. Design Consultant (NEW)
+- **Review**: Analyze your code against design system specifications
+  ```bash
+  /design-md review stripe --file src/pages/Login.tsx
+  ```
+- **Suggest**: Get contextual design recommendations with implementation code
+  ```bash
+  /design-md suggest linear --context "create a dashboard sidebar"
+  ```
+- **Plan**: Generate complete design plans for pages or applications
+  ```bash
+  /design-md plan stripe --page-type dashboard --description "Payment dashboard"
+  ```
+- **Apply**: Apply design systems to specific components with variant support
+  ```bash
+  /design-md apply google-material --component button --variants primary,secondary
+  ```
+
+### 4. Architecture
+- Modular atomic capability design
+- Type-safe TypeScript interfaces
+- Structured output for AI consumption
+- Capability composition for complex workflows
+
+---
+
 # Codex API Support: Feature Parity & UI Overhaul
 
 ## Summary
