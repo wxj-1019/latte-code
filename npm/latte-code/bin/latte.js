@@ -4,7 +4,7 @@ const path = require('path');
 
 const platform = process.platform;
 const arch = process.arch;
-const pkgName = `@wxj-1019/latte-code-${platform}-${arch}`;
+const pkgName = `@zenjiro-latte/latte-code-${platform}-${arch}`;
 
 const binaryName = platform === 'win32' ? 'latte' : 'latte';
 

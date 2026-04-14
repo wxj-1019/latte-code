@@ -29,11 +29,11 @@ const repoUrl = pkg.repository?.url ?? 'git+https://github.com/wxj-1019/latte-co
 const version = pkg.version
 
 const platforms = [
-  { name: '@wxj-1019/latte-code-darwin-x64', os: 'darwin', cpu: 'x64', binary: 'latte', dirName: 'latte-code-darwin-x64' },
-  { name: '@wxj-1019/latte-code-darwin-arm64', os: 'darwin', cpu: 'arm64', binary: 'latte', dirName: 'latte-code-darwin-arm64' },
-  { name: '@wxj-1019/latte-code-linux-x64', os: 'linux', cpu: 'x64', binary: 'latte', dirName: 'latte-code-linux-x64' },
-  { name: '@wxj-1019/latte-code-linux-arm64', os: 'linux', cpu: 'arm64', binary: 'latte', dirName: 'latte-code-linux-arm64' },
-  { name: '@wxj-1019/latte-code-win32-x64', os: 'win32', cpu: 'x64', binary: 'latte.exe', dirName: 'latte-code-win32-x64' },
+  { name: '@zenjiro-latte/latte-code-darwin-x64', os: 'darwin', cpu: 'x64', binary: 'latte', dirName: 'latte-code-darwin-x64' },
+  { name: '@zenjiro-latte/latte-code-darwin-arm64', os: 'darwin', cpu: 'arm64', binary: 'latte', dirName: 'latte-code-darwin-arm64' },
+  { name: '@zenjiro-latte/latte-code-linux-x64', os: 'linux', cpu: 'x64', binary: 'latte', dirName: 'latte-code-linux-x64' },
+  { name: '@zenjiro-latte/latte-code-linux-arm64', os: 'linux', cpu: 'arm64', binary: 'latte', dirName: 'latte-code-linux-arm64' },
+  { name: '@zenjiro-latte/latte-code-win32-x64', os: 'win32', cpu: 'x64', binary: 'latte.exe', dirName: 'latte-code-win32-x64' },
 ] as const
 
 function run(cmd: string[], cwd: string): { success: boolean; stdout: string; stderr: string } {
@@ -77,7 +77,7 @@ async function main() {
     process.exit(1)
   }
 
-  console.log(`[*] Publishing @wxj-1019/latte-code v${version}`)
+  console.log(`[*] Publishing @zenjiro-latte/latte-code v${version}`)
   console.log(`    Binary directory: ${binaryDir}`)
   if (dryRun) {
     console.log('    Mode: DRY RUN')
@@ -129,18 +129,18 @@ async function main() {
     bin: { latte: './bin/latte.js' },
     files: ['bin', 'README.md'],
     optionalDependencies: {
-      '@wxj-1019/latte-code-darwin-x64': version,
-      '@wxj-1019/latte-code-darwin-arm64': version,
-      '@wxj-1019/latte-code-linux-x64': version,
-      '@wxj-1019/latte-code-linux-arm64': version,
-      '@wxj-1019/latte-code-win32-x64': version,
+      '@zenjiro-latte/latte-code-darwin-x64': version,
+      '@zenjiro-latte/latte-code-darwin-arm64': version,
+      '@zenjiro-latte/latte-code-linux-x64': version,
+      '@zenjiro-latte/latte-code-linux-arm64': version,
+      '@zenjiro-latte/latte-code-win32-x64': version,
     },
     engines: { node: '>=18' },
     keywords: ['claude', 'claude-code', 'ai', 'cli', 'latte', 'coding-agent'],
   }
 
   writeFileSync(join(mainPkgDir, 'package.json'), JSON.stringify(mainPkg, null, 2) + '\n')
-  publishPackage(mainPkgDir, '@wxj-1019/latte-code')
+  publishPackage(mainPkgDir, '@zenjiro-latte/latte-code')
 
   console.log('\n[+] All packages published successfully!')
 }

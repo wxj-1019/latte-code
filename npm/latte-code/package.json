@@ -1,5 +1,5 @@
 {
-  "name": "@wxj-1019/latte-code",
+  "name": "@zenjiro-latte/latte-code",
   "version": "2.1.88",
   "description": "Latte - A buildable fork of Claude Code CLI with telemetry removed and experimental features unlocked.",
   "license": "MIT",
@@ -19,11 +19,11 @@
     "README.md"
   ],
   "optionalDependencies": {
-    "@wxj-1019/latte-code-darwin-x64": "2.1.88",
-    "@wxj-1019/latte-code-darwin-arm64": "2.1.88",
-    "@wxj-1019/latte-code-linux-x64": "2.1.88",
-    "@wxj-1019/latte-code-linux-arm64": "2.1.88",
-    "@wxj-1019/latte-code-win32-x64": "2.1.88"
+    "@zenjiro-latte/latte-code-darwin-x64": "2.1.88",
+    "@zenjiro-latte/latte-code-darwin-arm64": "2.1.88",
+    "@zenjiro-latte/latte-code-linux-x64": "2.1.88",
+    "@zenjiro-latte/latte-code-linux-arm64": "2.1.88",
+    "@zenjiro-latte/latte-code-win32-x64": "2.1.88"
   },
   "engines": {
     "node": ">=18"
