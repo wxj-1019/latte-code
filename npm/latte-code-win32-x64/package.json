@@ -1,25 +1,25 @@
 {
-  "name": "latte-darwin-arm64",
+  "name": "latte-code-win32-x64",
   "version": "2.1.87",
-  "description": "Latte CLI binary for macOS Apple Silicon (arm64)",
+  "description": "Latte CLI binary for Windows (x64)",
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/wxj-1019/latte-code.git"
   },
   "files": [
-    "latte"
+    "latte.exe"
   ],
   "bin": {
-    "latte-darwin-arm64": "./latte"
+    "latte-code-win32-x64": "./latte.exe"
   },
   "engines": {
     "node": ">=18"
   },
   "os": [
-    "darwin"
+    "win32"
   ],
   "cpu": [
-    "arm64"
+    "x64"
   ]
 }

@@ -302,17 +302,17 @@ CLAUDE_CODE_PROFILE=1      # 启动性能分析
 
 ```bash
 # 全局安装（自动匹配当前平台）
-npm install -g latte
+npm install -g latte-code
 ```
 
 #### 包结构
 
 - **`latte`** — 主包（~5KB），包含平台检测启动脚本 `bin/latte.js`
-- **`latte-darwin-x64`** — macOS Intel 二进制
-- **`latte-darwin-arm64`** — macOS Apple Silicon 二进制
-- **`latte-linux-x64`** — Linux x64 二进制
-- **`latte-linux-arm64`** — Linux arm64 二进制
-- **`latte-win32-x64`** — Windows x64 二进制
+- **`latte-code-darwin-x64`** — macOS Intel 二进制
+- **`latte-code-darwin-arm64`** — macOS Apple Silicon 二进制
+- **`latte-code-linux-x64`** — Linux x64 二进制
+- **`latte-code-linux-arm64`** — Linux arm64 二进制
+- **`latte-code-win32-x64`** — Windows x64 二进制
 
 主包通过 `optionalDependencies` 引用所有平台子包，npm 在安装时只会下载与当前 `process.platform` + `process.arch` 匹配的一个子包。
 

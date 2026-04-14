@@ -29,11 +29,11 @@ const repoUrl = pkg.repository?.url ?? 'git+https://github.com/wxj-1019/latte-co
 const version = pkg.version
 
 const platforms = [
-  { name: 'latte-darwin-x64', os: 'darwin', cpu: 'x64', binary: 'latte' },
-  { name: 'latte-darwin-arm64', os: 'darwin', cpu: 'arm64', binary: 'latte' },
-  { name: 'latte-linux-x64', os: 'linux', cpu: 'x64', binary: 'latte' },
-  { name: 'latte-linux-arm64', os: 'linux', cpu: 'arm64', binary: 'latte' },
-  { name: 'latte-win32-x64', os: 'win32', cpu: 'x64', binary: 'latte.exe' },
+  { name: 'latte-code-darwin-x64', os: 'darwin', cpu: 'x64', binary: 'latte' },
+  { name: 'latte-code-darwin-arm64', os: 'darwin', cpu: 'arm64', binary: 'latte' },
+  { name: 'latte-code-linux-x64', os: 'linux', cpu: 'x64', binary: 'latte' },
+  { name: 'latte-code-linux-arm64', os: 'linux', cpu: 'arm64', binary: 'latte' },
+  { name: 'latte-code-win32-x64', os: 'win32', cpu: 'x64', binary: 'latte.exe' },
 ] as const
 
 function run(cmd: string[], cwd: string): { success: boolean; stdout: string; stderr: string } {
@@ -77,7 +77,7 @@ async function main() {
     process.exit(1)
   }
 
-  console.log(`[*] Publishing latte v${version}`)
+  console.log(`[*] Publishing latte-code v${version}`)
   console.log(`    Binary directory: ${binaryDir}`)
   if (dryRun) {
     console.log('    Mode: DRY RUN')
@@ -117,9 +117,9 @@ async function main() {
   }
 
   // Publish main package
-  const mainPkgDir = resolve(join('npm', 'latte'))
+  const mainPkgDir = resolve(join('npm', 'latte-code'))
   const mainPkg = {
-    name: 'latte',
+    name: 'latte-code',
     version,
     description: 'Latte - A buildable fork of Claude Code CLI with telemetry removed and experimental features unlocked.',
     license: 'MIT',
@@ -129,18 +129,18 @@ async function main() {
     bin: { latte: './bin/latte.js' },
     files: ['bin', 'README.md'],
     optionalDependencies: {
-      'latte-darwin-x64': version,
-      'latte-darwin-arm64': version,
-      'latte-linux-x64': version,
-      'latte-linux-arm64': version,
-      'latte-win32-x64': version,
+      'latte-code-darwin-x64': version,
+      'latte-code-darwin-arm64': version,
+      'latte-code-linux-x64': version,
+      'latte-code-linux-arm64': version,
+      'latte-code-win32-x64': version,
     },
     engines: { node: '>=18' },
     keywords: ['claude', 'claude-code', 'ai', 'cli', 'latte', 'coding-agent'],
   }
 
   writeFileSync(join(mainPkgDir, 'package.json'), JSON.stringify(mainPkg, null, 2) + '\n')
-  publishPackage(mainPkgDir, 'latte')
+  publishPackage(mainPkgDir, 'latte-code')
 
   console.log('\n[+] All packages published successfully!')
 }

@@ -1,5 +1,5 @@
 {
-  "name": "latte-darwin-x64",
+  "name": "latte-code-darwin-x64",
   "version": "2.1.87",
   "description": "Latte CLI binary for macOS Intel (x64)",
   "license": "MIT",
@@ -11,7 +11,7 @@
     "latte"
   ],
   "bin": {
-    "latte-darwin-x64": "./latte"
+    "latte-code-darwin-x64": "./latte"
   },
   "engines": {
     "node": ">=18"
