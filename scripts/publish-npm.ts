@@ -119,7 +119,7 @@ async function main() {
   // Publish main package
   const mainPkgDir = resolve(join('npm', 'latte-code'))
   const mainPkg = {
-    name: '@wxj-1019/latte-code',
+    name: '@zenjiro-latte/latte-code',
     version,
     description: 'Latte - A buildable fork of Claude Code CLI with telemetry removed and experimental features unlocked.',
     license: 'MIT',

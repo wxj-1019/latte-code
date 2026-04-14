@@ -1,6 +1,6 @@
 {
   "name": "@zenjiro-latte/latte-code-linux-x64",
-  "version": "2.1.89",
+  "version": "2.1.90",
   "description": "Latte CLI binary for Linux (x64)",
   "license": "MIT",
   "repository": {

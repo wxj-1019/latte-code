@@ -1,6 +1,6 @@
 {
   "name": "latte",
-  "version": "2.1.89",
+  "version": "2.1.90",
   "private": true,
   "description": "Latte - A buildable fork of Claude Code CLI with telemetry removed and experimental features unlocked.",
   "type": "module",
