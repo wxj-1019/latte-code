@@ -10,6 +10,15 @@ const args = process.argv.slice(2)
 const compile = args.includes('--compile')
 const dev = args.includes('--dev')
 
+let targetOverride: string | null = null
+for (let i = 0; i < args.length; i += 1) {
+  const arg = args[i]
+  if (arg === '--target' && args[i + 1]) {
+    targetOverride = args[i + 1]!
+    i += 1
+  }
+}
+
 const fullExperimentalFeatures = [
   'AGENT_MEMORY_SNAPSHOT',
   'AGENT_TRIGGERS',
@@ -164,7 +173,7 @@ const cmd = [
   './src/entrypoints/cli.tsx',
   '--compile',
   '--target',
-  'bun',
+  targetOverride ?? 'bun',
   '--format',
   'esm',
   '--outfile',
