@@ -302,7 +302,7 @@ CLAUDE_CODE_PROFILE=1      # 启动性能分析
 
 ```bash
 # 全局安装（自动匹配当前平台）
-npm install -g latte-code
+npm install -g @wxj-1019/latte-code
 ```
 
 #### 包结构

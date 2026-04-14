@@ -1,5 +1,5 @@
 {
-  "name": "latte-code-linux-arm64",
+  "name": "@wxj-1019/latte-code-linux-arm64",
   "version": "2.1.88",
   "description": "Latte CLI binary for Linux (arm64)",
   "license": "MIT",
