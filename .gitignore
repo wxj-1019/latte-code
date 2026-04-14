@@ -3,6 +3,7 @@ dist/
 cli.exe
 cli-dev
 cli-dev.exe
+cli-enhanced.exe
 openclaw/
 *.bun-build
 .idea/
