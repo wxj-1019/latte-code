@@ -246,6 +246,18 @@ function buildCapabilityInput(
         }
       }
 
+    case 'workflow':
+    case 'auto':
+      return {
+        type: 'workflow',
+        input: {
+          context: params.target || params.context || params['for'] || '',
+          filePath: params.file,
+          code: params.code,
+          requirements: params.requirements?.split(',') || []
+        }
+      }
+
     default:
       return null
   }
@@ -276,6 +288,10 @@ Design Consultant | 设计顾问:
   plan <brand>         - Create design plan | 创建设计方案
   apply <brand>        - Apply design to component | 应用设计系统
 
+Intelligent Workflow | 智能工作流:
+  workflow <context>   - Auto workflow | 自动执行完整设计流程
+  auto <context>       - Smart detect | 智能检测并执行
+
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🔧 Common Options | 常用选项
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -298,7 +314,13 @@ Design Consultant | 设计顾问:
   /design-md review stripe --file src/pages/Login.tsx
   /design-md suggest linear --context "create a dashboard sidebar"
   /design-md plan stripe --page-type dashboard --description "Payment dashboard"
-  /design-md apply stripe --component button --variants primary,secondary`
+  /design-md apply stripe --component button --variants primary,secondary
+
+🚀 Workflow Examples | 智能工作流示例:
+  /design-md workflow "create a login page like Stripe"
+  /design-md auto "review my button component" --file src/Button.tsx
+  /design-md workflow "migrate from Bootstrap to Tailwind" --file src/
+  /design-md auto "design a fintech dashboard" --requirements responsive,dark-mode`
 }
 
 /**

@@ -455,7 +455,7 @@ export interface AdviseCapability {
 // Unified Capability Registry
 // ============================================================================
 
-export type CapabilityType = 'fetch' | 'search' | 'analyze' | 'generate' | 'compare' | 'extract' | 'advise'
+export type CapabilityType = 'fetch' | 'search' | 'analyze' | 'generate' | 'compare' | 'extract' | 'advise' | 'workflow'
 
 export interface CapabilityRegistry {
   fetch: FetchCapability
@@ -465,6 +465,7 @@ export interface CapabilityRegistry {
   compare: CompareCapability
   extract: ExtractCapability
   advise: AdviseCapability
+  workflow: WorkflowCapability
 }
 
 export type CapabilityInput = 
@@ -483,6 +484,60 @@ export type AdviseInput =
   | { action: 'plan'; data: DesignPlanInput }
   | { action: 'apply'; data: ApplyInput }
 
+// ============================================================================
+// Workflow Capability Types
+// ============================================================================
+
+export interface WorkflowInput {
+  context: string
+  filePath?: string
+  code?: string
+  requirements?: string[]
+}
+
+export interface WorkflowOutput {
+  success: boolean
+  workflowType: WorkflowStep['type'] | 'unknown'
+  steps: WorkflowStep[]
+  result: WorkflowResult | null
+  error?: string
+}
+
+export interface WorkflowStep {
+  type: 'fetch' | 'analyze' | 'plan' | 'generate' | 'review' | 'suggest' | 'apply' | 'migrate' | 'search'
+  description: string
+  status?: 'pending' | 'running' | 'completed' | 'failed'
+}
+
+export interface WorkflowResult {
+  brand: string
+  designSystem?: DesignSystem
+  analysis?: ColorAnalysis | TypographyAnalysis | AccessibilityReport | FullAnalysis
+  plan?: DesignPlan
+  code?: string
+  language?: string
+  review?: ReviewOutput
+  suggestions?: DesignSuggestion[]
+  score?: number
+  sourceBrand?: string
+  targetBrand?: string
+  migrationGuide?: string
+  componentType?: string
+  improvedCode?: ComponentDesignResult
+}
+
+export interface DesignContext {
+  projectType: string
+  pageType: 'landing' | 'dashboard' | 'form' | 'list' | 'detail' | 'custom'
+  componentType?: string
+  requirements: string[]
+  constraints?: string[]
+}
+
+export interface WorkflowCapability {
+  execute(input: WorkflowInput): Promise<WorkflowOutput>
+}
+
 export type CapabilityOutput = 
   | FetchOutput 
   | SearchOutput 
@@ -494,4 +549,5 @@ export type CapabilityOutput =
   | SuggestOutput
   | DesignPlanOutput
   | ApplyOutput
+  | WorkflowOutput
   | ListOutput

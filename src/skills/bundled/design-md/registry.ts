@@ -18,6 +18,7 @@ import { generateCapability } from './capabilities/generate'
 import { compareCapability } from './capabilities/compare'
 import { extractCapability } from './capabilities/extract'
 import { adviseCapability } from './capabilities/advise'
+import { workflowCapability } from './capabilities/workflow'
 
 // Singleton registry instance
 const registry: CapabilityRegistry = {
@@ -27,7 +28,8 @@ const registry: CapabilityRegistry = {
   generate: generateCapability,
   compare: compareCapability,
   extract: extractCapability,
-  advise: adviseCapability
+  advise: adviseCapability,
+  workflow: workflowCapability
 }
 
 /**
@@ -61,6 +63,8 @@ export async function executeCapability(
       return registry.extract.extract(input.input)
     case 'advise':
       return executeAdviseCapability(input.input)
+    case 'workflow':
+      return registry.workflow.execute(input.input)
     case 'list':
       return registry.search.list()
     default:
@@ -92,7 +96,7 @@ async function executeAdviseCapability(
  * Get all available capabilities
  */
 export function getAllCapabilities(): CapabilityType[] {
-  return ['fetch', 'search', 'analyze', 'generate', 'compare', 'extract', 'advise']
+  return ['fetch', 'search', 'analyze', 'generate', 'compare', 'extract', 'advise', 'workflow']
 }
 
 /**
@@ -110,7 +114,8 @@ export {
   generateCapability,
   compareCapability,
   extractCapability,
-  adviseCapability
+  adviseCapability,
+  workflowCapability
 }
 
 // Re-export types
