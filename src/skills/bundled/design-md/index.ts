@@ -324,21 +324,115 @@ Intelligent Workflow | 智能工作流:
 }
 
 /**
+ * Auto-detect the best capability based on context
+ */
+function autoDetectCapability(context: ToolUseContext): CapabilityInput {
+  const userInput = context.options?.message || ''
+  const lowerInput = userInput.toLowerCase()
+  
+  // Detect intent patterns
+  const isReviewRequest = /review|check|audit|inspect|evaluate/i.test(userInput)
+  const isGenerationRequest = /generate|create|make|build|write/i.test(userInput) && 
+                               /css|tailwind|scss|style|component/i.test(userInput)
+  const isComparisonRequest = /compare|versus|vs|difference|better/i.test(userInput)
+  const isSearchRequest = /search|find|look for|which|what design/i.test(userInput)
+  const isAnalysisRequest = /analyze|analysis|check.*color|check.*typography/i.test(userInput)
+  const hasBrandMention = /apple|stripe|linear|google|material|tailwind|bootstrap|chakra/i.test(lowerInput)
+  
+  // Auto-route to appropriate capability
+  if (isReviewRequest && hasBrandMention) {
+    // Extract brand from mention
+    const brandMatch = userInput.match(/(apple|stripe|linear|google|material|tailwind|bootstrap|chakra)/i)
+    return {
+      type: 'advise',
+      input: {
+        action: 'review',
+        data: {
+          brand: brandMatch?.[1] || 'auto',
+          context: userInput
+        }
+      }
+    }
+  }
+  
+  if (isGenerationRequest && hasBrandMention) {
+    const brandMatch = userInput.match(/(apple|stripe|linear|google|material|tailwind|bootstrap|chakra)/i)
+    const outputType = /tailwind/i.test(lowerInput) ? 'tailwind' : 
+                       /scss|sass/i.test(lowerInput) ? 'scss' : 'css'
+    return {
+      type: 'generate',
+      input: {
+        brand: brandMatch?.[1] || 'auto',
+        outputType,
+        options: { includeVariables: true }
+      }
+    }
+  }
+  
+  if (isComparisonRequest && hasBrandMention) {
+    const brands = userInput.match(/(apple|stripe|linear|google|material|tailwind|bootstrap|chakra)/gi) || []
+    return {
+      type: 'compare',
+      input: {
+        brands: brands.map(b => b.toLowerCase()),
+        compareBy: ['colors', 'typography']
+      }
+    }
+  }
+  
+  if (isSearchRequest) {
+    const query = userInput.replace(/search|find|look for|which|what design/gi, '').trim()
+    return {
+      type: 'search',
+      input: { query, limit: 10 }
+    }
+  }
+  
+  if (isAnalysisRequest && hasBrandMention) {
+    const brandMatch = userInput.match(/(apple|stripe|linear|google|material|tailwind|bootstrap|chakra)/i)
+    return {
+      type: 'analyze',
+      input: {
+        brand: brandMatch?.[1] || 'auto',
+        analysisType: 'full'
+      }
+    }
+  }
+  
+  // Default: use workflow for smart detection
+  return {
+    type: 'workflow',
+    input: {
+      context: userInput,
+      auto: true
+    }
+  }
+}
+
+/**
  * Generate prompt for the AI based on capability result
+ * Supports both manual args and auto-detection
  */
 async function generatePrompt(
   args: string,
   context: ToolUseContext
 ): Promise<ContentBlockParam[]> {
-  const { action, params } = parseArgs(args)
+  // If args is empty or "auto", use auto-detection
+  const useAutoDetect = !args.trim() || args.trim() === 'auto'
   
-  // Build capability input
-  const capabilityInput = buildCapabilityInput(action, params)
+  let capabilityInput: CapabilityInput | null
+  
+  if (useAutoDetect) {
+    capabilityInput = autoDetectCapability(context)
+  } else {
+    const { action, params } = parseArgs(args)
+    capabilityInput = buildCapabilityInput(action, params)
+  }
   
   if (!capabilityInput) {
     return [{
       type: 'text',
-      text: generateHelpMessage(action)
+      text: generateHelpMessage(args)
     }]
   }
 
@@ -351,47 +445,82 @@ async function generatePrompt(
     
     return [{
       type: 'text',
-      text: `Design-MD Capability Execution Result
+      text: `Design-MD Auto-Execution Result
 
-Action: ${action}
-Parameters: ${JSON.stringify(params)}
+Capability: ${capabilityInput.type}
+Input: ${JSON.stringify(capabilityInput.input)}
 
 Result:
 \`\`\`json
 ${resultText}
 \`\`\`
 
-You can use this data to:
-1. Answer user questions about the design system
-2. Generate code samples
-3. Provide design recommendations
-4. Compare with other systems
+You should use this design system data to:
+1. Provide specific, actionable design recommendations
+2. Generate code examples using the design tokens
+3. Compare user implementation with the reference design
+4. Suggest improvements based on the design system
 
-The result includes structured data that you can reference in your response.`
+Respond naturally without mentioning that you used design-md - just incorporate the insights into your response.`
     }]
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     return [{
       type: 'text',
-      text: `Error executing design-md capability: ${message}
+      text: `Design-MD execution note: ${message}
 
-Please check your arguments and try again.`
+Proceed with your best design recommendations.`
     }]
   }
 }
 
 /**
- * Register the design-md bundled skill
+ * Auto-trigger detection for design-md
+ * Returns true if the context suggests design system assistance is needed
+ */
+function shouldAutoTrigger(context: string): boolean {
+  const designKeywords = [
+    // Design system references
+    'design system', 'design token', 'color palette', 'typography',
+    'component library', 'ui kit', 'design spec', 'style guide',
+    // Brand names (common design systems)
+    'material design', 'ant design', 'chakra', 'tailwind', 'bootstrap',
+    'apple design', 'google material', 'fluent', 'carbon', 'atlassian',
+    'stripe', 'linear', 'vercel', 'shopify polaris', 'github primer',
+    // UI components
+    'button', 'card', 'modal', 'form', 'input', 'dropdown', 'navigation',
+    'sidebar', 'header', 'footer', 'layout', 'grid', 'flexbox',
+    // CSS/Styling
+    'css', 'scss', 'sass', 'less', 'styled-components', 'emotion',
+    'css-in-js', 'css variables', 'custom properties',
+    // Visual design
+    'spacing', 'margin', 'padding', 'border', 'shadow', 'radius',
+    'font', 'font-size', 'line-height', 'letter-spacing',
+    'primary color', 'secondary color', 'accent', 'theme',
+    // Accessibility
+    'a11y', 'accessibility', 'contrast ratio', 'wcag',
+    // Actions
+    'design review', 'check design', 'improve ui', 'polish',
+    'make it look like', 'similar to', 'inspired by',
+  ]
+  
+  const lowerContext = context.toLowerCase()
+  return designKeywords.some(keyword => lowerContext.includes(keyword))
+}
+
+/**
+ * Register the design-md bundled skill (auto-trigger mode)
  */
 function registerDesignMdSkill(): void {
   registerBundledSkill({
     name: SKILL_NAME,
     description: SKILL_DESCRIPTION,
     descriptionZh: SKILL_DESCRIPTION_ZH,
-    argumentHint: '<action> [target] [--option value]',
-    userInvocable: true,
+    whenToUse: `AUTO-TRIGGER when user mentions: design systems (Material, Apple, Stripe, Linear), UI components (button, card, form), CSS/Tailwind/SCSS, colors/typography/spacing, "look like X brand", design review, or accessibility. Has 66+ brand design systems. Use workflow capability to auto-detect intent, then provide design recommendations with code.`,
+    argumentHint: '[auto-detected]',
+    userInvocable: false,  // Hide from manual command list - auto-trigger only
+    isEnabled: () => true,  // Always enabled
     getPromptForCommand: generatePrompt
-    // Note: files removed to avoid potential auth conflicts
   })
 }
 
