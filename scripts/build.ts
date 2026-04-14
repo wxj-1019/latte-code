@@ -111,11 +111,11 @@ const features = [...featureSet]
 
 const outfile = compile
   ? dev
-    ? './dist/cli-dev'
-    : './dist/cli'
+    ? './dist/latte-dev'
+    : './dist/latte'
   : dev
-    ? './cli-dev'
-    : './cli'
+    ? './latte-dev'
+    : './latte'
 const buildTime = new Date().toISOString()
 const version = dev ? getDevVersion(pkg.version) : pkg.version
 

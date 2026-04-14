@@ -6,6 +6,8 @@ dist/
 *.exe
 cli
 cli-dev
+latte
+latte-dev
 openclaw/
 
 # Build artifacts

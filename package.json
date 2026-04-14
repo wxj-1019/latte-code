@@ -6,8 +6,8 @@
   "type": "module",
   "packageManager": "bun@1.3.11",
   "bin": {
-    "latte": "./cli",
-    "latte-dev": "./cli-dev"
+    "latte": "./latte",
+    "latte-dev": "./latte-dev"
   },
   "engines": {
     "bun": ">=1.3.11"
@@ -17,7 +17,11 @@
     "build:dev": "bun run ./scripts/build.ts --dev",
     "build:dev:full": "bun run ./scripts/build.ts --dev --feature-set=dev-full",
     "compile": "bun run ./scripts/build.ts --compile",
-    "dev": "bun run ./src/entrypoints/cli.tsx"
+    "dev": "bun run ./src/entrypoints/cli.tsx",
+    "install:global": "bun run ./scripts/install-global.ts install",
+    "uninstall:global": "bun run ./scripts/install-global.ts uninstall",
+    "link:global": "bun link",
+    "unlink:global": "bun unlink"
   },
   "dependencies": {
     "@alcalzone/ansi-tokenize": "^0.3.0",
