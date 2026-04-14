@@ -116,8 +116,21 @@ function normalizeToolResultContent(block: AnthropicContentBlock): string {
   return block.is_error ? `[tool error]\n${baseText}` : baseText
 }
 
+function hasThinkingBlocksInHistory(messages: AnthropicMessage[]): boolean {
+  for (const message of messages) {
+    if (!Array.isArray(message.content)) continue
+    for (const block of message.content) {
+      if (block.type === 'thinking' || block.type === 'redacted_thinking') {
+        return true
+      }
+    }
+  }
+  return false
+}
+
 function translateMessages(messages: AnthropicMessage[]): Array<Record<string, unknown>> {
   const translated: Array<Record<string, unknown>> = []
+  const historyHasThinking = hasThinkingBlocksInHistory(messages)
 
   for (const message of messages) {
     if (typeof message.content === 'string') {
@@ -174,10 +187,27 @@ function translateMessages(messages: AnthropicMessage[]): Array<Record<string, u
     if (message.role === 'assistant') {
       const textParts: string[] = []
       const toolCalls: Array<Record<string, unknown>> = []
+      let reasoningContent: string | undefined
 
       for (const block of message.content) {
         if (block.type === 'text' && typeof block.text === 'string') {
           textParts.push(block.text)
+          continue
+        }
+
+        if (
+          block.type === 'thinking' &&
+          typeof block.thinking === 'string'
+        ) {
+          reasoningContent = (reasoningContent ?? '') + block.thinking
+          continue
+        }
+
+        if (
+          block.type === 'redacted_thinking' &&
+          typeof block.data === 'string'
+        ) {
+          reasoningContent = (reasoningContent ?? '') + block.data
           continue
         }
 
@@ -197,12 +227,20 @@ function translateMessages(messages: AnthropicMessage[]): Array<Record<string, u
         }
       }
 
-      if (textParts.length > 0 || toolCalls.length > 0) {
-        translated.push({
+      if (textParts.length > 0 || toolCalls.length > 0 || reasoningContent !== undefined) {
+        const assistantMsg: Record<string, unknown> = {
           role: 'assistant',
           content: textParts.length > 0 ? textParts.join('\n') : null,
-          ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
-        })
+        }
+        if (reasoningContent !== undefined) {
+          assistantMsg.reasoning_content = reasoningContent
+        } else if (historyHasThinking) {
+          assistantMsg.reasoning_content = ''
+        }
+        if (toolCalls.length > 0) {
+          assistantMsg.tool_calls = toolCalls
+        }
+        translated.push(assistantMsg)
       }
     }
   }
@@ -359,6 +397,17 @@ async function translateOpenAIResponseToAnthropic(
   const toolCalls = Array.isArray(message.tool_calls) ? message.tool_calls : []
   const contentBlocks: Array<Record<string, unknown>> = []
 
+  // reasoning_content must be preserved for reasoning models (Kimi k1.5, etc.)
+  // Always create a thinking block when reasoning_content exists (even empty string)
+  // to prevent "reasoning_content is missing" errors on subsequent requests
+  if (typeof message.reasoning_content === 'string') {
+    contentBlocks.push({
+      type: 'thinking',
+      thinking: message.reasoning_content,
+      signature: '',
+    })
+  }
+
   if (typeof message.content === 'string' && message.content.length > 0) {
     contentBlocks.push({
       type: 'text',
@@ -434,6 +483,7 @@ async function translateOpenAIStreamToAnthropic(
       let buffer = ''
       let contentBlockIndex = 0
       let textBlockIndex: number | null = null
+      let thinkingBlockIndex: number | null = null
       let inputTokens = 0
       let outputTokens = 0
       let finalStopReason: string | null = null
@@ -463,10 +513,22 @@ async function translateOpenAIStreamToAnthropic(
         textBlockIndex = null
       }
 
+      const closeThinkingBlock = () => {
+        if (thinkingBlockIndex === null) {
+          return
+        }
+        emit(controller, encoder, 'content_block_stop', {
+          type: 'content_block_stop',
+          index: thinkingBlockIndex,
+        })
+        thinkingBlockIndex = null
+      }
+
       const startTextBlock = () => {
         if (textBlockIndex !== null) {
           return
         }
+        closeThinkingBlock()
         textBlockIndex = contentBlockIndex++
         emit(controller, encoder, 'content_block_start', {
           type: 'content_block_start',
@@ -521,6 +583,7 @@ async function translateOpenAIStreamToAnthropic(
         }
 
         closeTextBlock()
+        closeThinkingBlock()
         toolState.id ||= `toolu_${Date.now()}_${toolStates.size}`
         toolState.blockIndex = contentBlockIndex++
         toolState.started = true
@@ -581,6 +644,23 @@ async function translateOpenAIStreamToAnthropic(
           }
 
           const delta = isRecord(rawChoice.delta) ? rawChoice.delta : {}
+          if (typeof delta.reasoning_content === 'string' && delta.reasoning_content.length > 0) {
+            if (thinkingBlockIndex === null) {
+              closeTextBlock()
+              thinkingBlockIndex = contentBlockIndex++
+              emit(controller, encoder, 'content_block_start', {
+                type: 'content_block_start',
+                index: thinkingBlockIndex,
+                content_block: { type: 'thinking', thinking: '' },
+              })
+            }
+            emit(controller, encoder, 'content_block_delta', {
+              type: 'content_block_delta',
+              index: thinkingBlockIndex,
+              delta: { type: 'thinking_delta', thinking: delta.reasoning_content },
+            })
+          }
+
           if (typeof delta.content === 'string' && delta.content.length > 0) {
             startTextBlock()
             if (textBlockIndex !== null) {
@@ -690,6 +770,7 @@ async function translateOpenAIStreamToAnthropic(
       }
 
       closeTextBlock()
+      closeThinkingBlock()
       closeAllToolBlocks()
 
       emit(controller, encoder, 'message_delta', {
