@@ -14,7 +14,11 @@
       "Bash(gh repo:*)",
       "Bash(curl:*)",
       "Bash(./cli-dev skills:*)",
-      "Skill(design-md)"
+      "Skill(design-md)",
+      "Bash(xargs ls:*)",
+      "Bash(find . -type f -name *.json -o -name *.ts -o -name *.tsx -o -name *.md)",
+      "Bash(wc -l src/**/*.ts src/**/*.tsx)",
+      "Bash(xargs wc:*)"
     ]
   }
 }

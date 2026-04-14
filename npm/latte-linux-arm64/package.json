@@ -1,0 +1,25 @@
+{
+  "name": "latte-linux-arm64",
+  "version": "2.1.87",
+  "description": "Latte CLI binary for Linux (arm64)",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wxj-1019/latte-code.git"
+  },
+  "files": [
+    "latte"
+  ],
+  "bin": {
+    "latte-linux-arm64": "./latte"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "arm64"
+  ]
+}

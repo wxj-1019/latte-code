@@ -1,0 +1,25 @@
+{
+  "name": "latte-darwin-x64",
+  "version": "2.1.87",
+  "description": "Latte CLI binary for macOS Intel (x64)",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wxj-1019/latte-code.git"
+  },
+  "files": [
+    "latte"
+  ],
+  "bin": {
+    "latte-darwin-x64": "./latte"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "x64"
+  ]
+}

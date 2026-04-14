@@ -20,6 +20,7 @@
     "dev": "bun run ./src/entrypoints/cli.tsx",
     "install:global": "bun run ./scripts/install-global.ts install",
     "uninstall:global": "bun run ./scripts/install-global.ts uninstall",
+    "publish:npm": "bun run ./scripts/publish-npm.ts",
     "link:global": "bun link",
     "unlink:global": "bun unlink"
   },
