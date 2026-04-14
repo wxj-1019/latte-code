@@ -1,6 +1,6 @@
 {
   "name": "@zenjiro-latte/latte-code-darwin-x64",
-  "version": "2.1.88",
+  "version": "2.1.89",
   "description": "Latte CLI binary for macOS Intel (x64)",
   "license": "MIT",
   "repository": {
