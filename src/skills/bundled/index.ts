@@ -5,6 +5,7 @@ import { registerClaudeInChromeSkill } from './claudeInChrome.js'
 import { registerDebugSkill } from './debug.js'
 import { registerDesignMdSkill } from './design-md/index.js'
 import { registerKeybindingsSkill } from './keybindings.js'
+import { registerSuperpowersSkill } from './superpowers.js'
 import { registerLoremIpsumSkill } from './loremIpsum.js'
 import { registerRememberSkill } from './remember.js'
 import { registerSimplifySkill } from './simplify.js'
@@ -28,6 +29,7 @@ export function initBundledSkills(): void {
   registerVerifySkill()
   registerDebugSkill()
   registerDesignMdSkill()
+  registerSuperpowersSkill()
   registerLoremIpsumSkill()
   registerSkillifySkill()
   registerRememberSkill()
