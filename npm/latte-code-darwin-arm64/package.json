@@ -1,6 +1,6 @@
 {
   "name": "latte-code-darwin-arm64",
-  "version": "2.1.87",
+  "version": "2.1.88",
   "description": "Latte CLI binary for macOS Apple Silicon (arm64)",
   "license": "MIT",
   "repository": {
