@@ -51,10 +51,19 @@ function run(cmd: string[], cwd: string): { success: boolean; stdout: string; st
   }
 }
 
-function publishPackage(pkgDir: string, pkgName: string): void {
-  console.log(`\n[→] Publishing ${pkgName}...`)
+function isAlreadyPublished(pkgName: string, pkgVersion: string): boolean {
+  const result = run(['npm', 'view', `${pkgName}@${pkgVersion}`, 'version'], process.cwd())
+  return result.success && result.stdout.trim() === pkgVersion
+}
+
+function publishPackage(pkgDir: string, pkgName: string, pkgVersion: string): void {
+  console.log(`\n[→] Publishing ${pkgName}@${pkgVersion}...`)
   if (dryRun) {
     console.log(`    (dry-run) Would run: npm publish --access public in ${pkgDir}`)
+    return
+  }
+  if (isAlreadyPublished(pkgName, pkgVersion)) {
+    console.log(`    [i] ${pkgName}@${pkgVersion} already published, skipping`)
     return
   }
   const result = run(['npm', 'publish', '--access', 'public'], pkgDir)
@@ -113,7 +122,7 @@ async function main() {
     }
 
     writeFileSync(join(pkgDir, 'package.json'), JSON.stringify(platformPkg, null, 2) + '\n')
-    publishPackage(pkgDir, platform.name)
+    publishPackage(pkgDir, platform.name, version)
   }
 
   // Publish main package
@@ -140,7 +149,7 @@ async function main() {
   }
 
   writeFileSync(join(mainPkgDir, 'package.json'), JSON.stringify(mainPkg, null, 2) + '\n')
-  publishPackage(mainPkgDir, '@zenjiro-latte/latte-code')
+  publishPackage(mainPkgDir, '@zenjiro-latte/latte-code', version)
 
   console.log('\n[+] All packages published successfully!')
 }
