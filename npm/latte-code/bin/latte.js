@@ -6,7 +6,7 @@ const platform = process.platform;
 const arch = process.arch;
 const pkgName = `@zenjiro-latte/latte-code-${platform}-${arch}`;
 
-const binaryName = platform === 'win32' ? 'latte' : 'latte';
+const binaryName = platform === 'win32' ? 'latte.exe' : 'latte';
 
 let binaryPath;
 try {
