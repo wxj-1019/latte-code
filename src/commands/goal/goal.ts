@@ -9,6 +9,8 @@
  *   /goal clear        - Clear current goal
  */
 
+import type { LocalCommandResult } from '../../types/command.js'
+import type { ToolUseContext } from '../../Tool.js'
 import {
   clearGoal,
   formatGoalStatus,
@@ -18,6 +20,8 @@ import {
   pauseGoal,
   resumeGoal,
   setGoal,
+  getOriginalPermissionMode,
+  setOriginalPermissionMode,
 } from './goalState.js'
 import { buildGoalInitialPrompt } from './goalPrompts.js'
 
@@ -83,12 +87,53 @@ function parseMaxTurns(): number {
   return parsed
 }
 
-export default async function goal(args: string): Promise<string> {
+/**
+ * Enable bypassPermissions mode when a goal is set.
+ * Restores original mode when goal is cleared/paused.
+ */
+function enableBypassPermissions(context: ToolUseContext): void {
+  const appState = context.getAppState()
+  const currentMode = appState.toolPermissionContext.mode
+  // Save current mode if not already saved
+  if (!getOriginalPermissionMode()) {
+    setOriginalPermissionMode(currentMode)
+  }
+  // Switch to bypassPermissions mode
+  context.setAppState(prev => ({
+    ...prev,
+    toolPermissionContext: {
+      ...prev.toolPermissionContext,
+      mode: 'bypassPermissions',
+    },
+  }))
+}
+
+/**
+ * Restore the original permission mode before goal was set.
+ */
+function restoreOriginalPermissions(context: ToolUseContext): void {
+  const originalMode = getOriginalPermissionMode()
+  if (originalMode) {
+    context.setAppState(prev => ({
+      ...prev,
+      toolPermissionContext: {
+        ...prev.toolPermissionContext,
+        mode: originalMode,
+      },
+    }))
+    setOriginalPermissionMode(null)
+  }
+}
+
+export default async function goal(
+  args: string,
+  context: ToolUseContext,
+): Promise<LocalCommandResult> {
   const trimmed = args.trim()
 
   // No args - show status
   if (!trimmed) {
-    return formatGoalStatus()
+    return { type: 'text', value: formatGoalStatus() }
   }
 
   // Subcommands
@@ -98,25 +143,27 @@ export default async function goal(args: string): Promise<string> {
     case 'pause': {
       const goal = getGoal()
       if (!goal) {
-        return 'No active goal to pause.'
+        return { type: 'text', value: 'No active goal to pause.' }
       }
       if (goal.status !== 'active') {
-        return `Goal is already ${goal.status}.`
+        return { type: 'text', value: `Goal is already ${goal.status}.` }
       }
       pauseGoal()
-      return `Goal paused: ${goal.objective}`
+      restoreOriginalPermissions(context)
+      return { type: 'text', value: `Goal paused: ${goal.objective}` }
     }
 
     case 'resume': {
       const goal = getGoal()
       if (!goal) {
-        return 'No goal to resume. Set one with /goal <objective>'
+        return { type: 'text', value: 'No goal to resume. Set one with /goal <objective>' }
       }
       if (goal.status !== 'paused') {
-        return `Goal is ${goal.status}, not paused.`
+        return { type: 'text', value: `Goal is ${goal.status}, not paused.` }
       }
       resumeGoal()
-      return `Goal resumed: ${goal.objective}`
+      enableBypassPermissions(context)
+      return { type: 'text', value: `Goal resumed: ${goal.objective}` }
     }
 
     case 'clear':
@@ -126,22 +173,23 @@ export default async function goal(args: string): Promise<string> {
     case 'cancel': {
       const goal = getGoal()
       if (!goal) {
-        return 'No active goal to clear.'
+        return { type: 'text', value: 'No active goal to clear.' }
       }
       const objective = goal.objective
       clearGoal()
-      return `Goal cleared: ${objective}`
+      restoreOriginalPermissions(context)
+      return { type: 'text', value: `Goal cleared: ${objective}` }
     }
 
     default: {
       // Check if it looks like a subcommand typo
       if (trimmed.length < 2) {
-        return 'Goal objective is too short. Please provide a meaningful description.'
+        return { type: 'text', value: 'Goal objective is too short. Please provide a meaningful description.' }
       }
 
       const closest = findClosestSubcommand(trimmed)
       if (closest) {
-        return `Unknown subcommand "${trimmed}". Did you mean: /goal ${closest}?`
+        return { type: 'text', value: `Unknown subcommand "${trimmed}". Did you mean: /goal ${closest}?` }
       }
 
       // Warn if overwriting existing active goal
@@ -149,11 +197,15 @@ export default async function goal(args: string): Promise<string> {
       if (existingGoal && existingGoal.status === 'active') {
         // Overwrite and continue
         clearGoal()
+        restoreOriginalPermissions(context)
       }
 
       const objective = trimmed
       const maxTurns = parseMaxTurns()
-      const goal = setGoal(objective, maxTurns)
+      setGoal(objective, maxTurns)
+
+      // Enable bypassPermissions mode for autonomous goal execution
+      enableBypassPermissions(context)
 
       // Return initial prompt to be sent to the model
       const mode = isConditionMode() ? 'condition' as const : 'objective' as const
@@ -161,7 +213,7 @@ export default async function goal(args: string): Promise<string> {
       const initialPrompt = buildGoalInitialPrompt(objective, maxTurns, mode, condition)
 
       const modeLabel = mode === 'condition' ? 'Condition' : 'Objective'
-      return `Goal set: ${objective}\nMode: ${modeLabel}\nMax turns: ${maxTurns}\n\n${initialPrompt}`
+      return { type: 'text', value: `Goal set: ${objective}\nMode: ${modeLabel}\nMax turns: ${maxTurns}\n\n${initialPrompt}` }
     }
   }
 }

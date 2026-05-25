@@ -33,6 +33,9 @@ export type Goal = {
 // Session-scoped goal state
 let currentGoal: Goal | null = null
 
+// Track the original permission mode before goal was set (for restoration)
+let originalPermissionMode: string | null = null
+
 // Track consecutive turns without tool calls (continuation suppression)
 let consecutiveZeroToolCalls = 0
 const MAX_ZERO_TOOL_CALLS = 3
@@ -137,6 +140,14 @@ export function clearGoal(): void {
   currentGoal = null
   consecutiveZeroToolCalls = 0
   persistGoalState()
+}
+
+export function getOriginalPermissionMode(): string | null {
+  return originalPermissionMode
+}
+
+export function setOriginalPermissionMode(mode: string | null): void {
+  originalPermissionMode = mode
 }
 
 export function markGoalComplete(): void {

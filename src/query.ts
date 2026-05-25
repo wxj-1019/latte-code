@@ -66,6 +66,9 @@ import {
   shouldSuppressContinuation,
   updateEvaluatorReason,
   addTokensSpent,
+  getConsecutiveZeroToolCalls,
+  getOriginalPermissionMode,
+  setOriginalPermissionMode,
 } from './commands/goal/goalState.js'
 import {
   buildGoalBudgetLimitPrompt,
@@ -311,6 +314,21 @@ async function* queryLoop(
   // Snapshot immutable env/statsig/session state once at entry. See QueryConfig
   // for what's included and why feature() gates are intentionally excluded.
   const config = buildQueryConfig()
+
+  // Helper to restore original permission mode when goal terminates
+  const restoreGoalPermissions = (ctx: ToolUseContext) => {
+    const originalMode = getOriginalPermissionMode()
+    if (originalMode) {
+      ctx.setAppState(prev => ({
+        ...prev,
+        toolPermissionContext: {
+          ...prev.toolPermissionContext,
+          mode: originalMode,
+        },
+      }))
+      setOriginalPermissionMode(null)
+    }
+  }
 
   // Fired once per user turn — the prompt is invariant across loop iterations,
   // so per-iteration firing would ask sideQuery the same question N times.
@@ -1763,9 +1781,13 @@ async function* queryLoop(
         if (assistantText.includes('[GOAL_COMPLETED]')) {
           markGoalComplete()
           updateEvaluatorReason('Model reported goal completion')
+          // Restore original permission mode when goal completes
+          restoreGoalPermissions(toolUseContext)
           // Goal will be shown as complete in status line
         } else if (goal.turnsUsed >= goal.maxTurns) {
           markGoalBudgetLimited()
+          // Restore original permission mode when budget is reached
+          restoreGoalPermissions(toolUseContext)
           const budgetMessage = buildGoalBudgetLimitPrompt(goal)
           toolResults.push(
             createUserMessage({ content: budgetMessage, isMeta: true }),
@@ -1773,6 +1795,8 @@ async function* queryLoop(
         } else if (shouldSuppressContinuation()) {
           // Too many consecutive turns without tool calls
           markGoalComplete()
+          // Restore original permission mode when goal is suppressed
+          restoreGoalPermissions(toolUseContext)
           const suppressionMessage = buildGoalSuppressionPrompt(
             goal,
             getConsecutiveZeroToolCalls(),

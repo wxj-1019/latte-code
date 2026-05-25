@@ -1915,8 +1915,19 @@ export function REPL({
       // Restore goal state if the session had an active goal
       if (log.goalState) {
         try {
-          const { deserializeGoal } = await import('../commands/goal/goalState.js');
+          const { deserializeGoal, getGoal } = await import('../commands/goal/goalState.js');
           deserializeGoal(log.goalState);
+          // If restored goal is active, enable bypassPermissions mode
+          const restoredGoal = getGoal();
+          if (restoredGoal?.status === 'active') {
+            setAppState(prev => ({
+              ...prev,
+              toolPermissionContext: {
+                ...prev.toolPermissionContext,
+                mode: 'bypassPermissions',
+              },
+            }));
+          }
         } catch {
           // Silently ignore goal restore errors
         }
