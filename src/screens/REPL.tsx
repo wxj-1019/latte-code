@@ -1912,6 +1912,16 @@ export function REPL({
         setCostStateForRestore(targetSessionCosts);
       }
 
+      // Restore goal state if the session had an active goal
+      if (log.goalState) {
+        try {
+          const { deserializeGoal } = await import('../commands/goal/goalState.js');
+          deserializeGoal(log.goalState);
+        } catch {
+          // Silently ignore goal restore errors
+        }
+      }
+
       // Reconstruct replacement state for the resumed session. Runs after
       // setSessionId so any NEW replacements post-resume write to the
       // resumed session's tool-results dir. Gated on ref.current: the

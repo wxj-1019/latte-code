@@ -55,6 +55,24 @@ import {
   stripSignatureBlocks,
 } from './utils/messages.js'
 import { generateToolUseSummary } from './services/toolUseSummary/toolUseSummaryGenerator.js'
+import {
+  getGoal,
+  incrementTurn,
+  isGoalActive,
+  isConditionMode,
+  markGoalBudgetLimited,
+  markGoalComplete,
+  recordToolCallPresence,
+  shouldSuppressContinuation,
+  updateEvaluatorReason,
+  addTokensSpent,
+} from './commands/goal/goalState.js'
+import {
+  buildGoalBudgetLimitPrompt,
+  buildGoalContinuationPrompt,
+  buildGoalSuppressionPrompt,
+  buildGoalEvaluatorPrompt,
+} from './commands/goal/goalPrompts.js'
 import { prependUserContext, appendSystemContext } from './utils/api.js'
 import {
   createAttachmentMessage,
@@ -1709,6 +1727,75 @@ async function* queryLoop(
         turnCount: nextTurnCount,
       })
       return { reason: 'max_turns', turnCount: nextTurnCount }
+    }
+
+    // Goal system integration
+    const goal = getGoal()
+    if (goal) {
+      incrementTurn()
+
+      // Track token usage for goal statistics
+      const turnInputTokens = assistantMessages.reduce((sum, m) => sum + (m.usage?.inputTokens || 0), 0)
+      const turnOutputTokens = assistantMessages.reduce((sum, m) => sum + (m.usage?.outputTokens || 0), 0)
+      addTokensSpent(turnInputTokens + turnOutputTokens)
+
+      // Check for continuation suppression (no tool calls)
+      const hadToolCalls = toolUseBlocks.length > 0
+      recordToolCallPresence(hadToolCalls)
+
+      if (isGoalActive()) {
+        // Check for auto-completion marker in assistant messages
+        // Only check text blocks, not tool_use blocks
+        let assistantText = ''
+        for (const m of assistantMessages) {
+          if (typeof m.content === 'string') {
+            assistantText += m.content
+          } else if (Array.isArray(m.content)) {
+            for (const c of m.content) {
+              if (typeof c === 'string') assistantText += c
+              else if (c && typeof c === 'object' && c.type === 'text' && typeof c.text === 'string') {
+                assistantText += c.text
+              }
+            }
+          }
+        }
+
+        if (assistantText.includes('[GOAL_COMPLETED]')) {
+          markGoalComplete()
+          updateEvaluatorReason('Model reported goal completion')
+          // Goal will be shown as complete in status line
+        } else if (goal.turnsUsed >= goal.maxTurns) {
+          markGoalBudgetLimited()
+          const budgetMessage = buildGoalBudgetLimitPrompt(goal)
+          toolResults.push(
+            createUserMessage({ content: budgetMessage, isMeta: true }),
+          )
+        } else if (shouldSuppressContinuation()) {
+          // Too many consecutive turns without tool calls
+          markGoalComplete()
+          const suppressionMessage = buildGoalSuppressionPrompt(
+            goal,
+            getConsecutiveZeroToolCalls(),
+          )
+          toolResults.push(
+            createUserMessage({ content: suppressionMessage, isMeta: true }),
+          )
+        } else {
+          // Inject goal continuation prompt
+          const continuationPrompt = buildGoalContinuationPrompt(goal)
+          toolResults.push(
+            createUserMessage({ content: continuationPrompt, isMeta: true }),
+          )
+
+          // For condition-mode goals, also inject evaluator prompt
+          if (isConditionMode()) {
+            const evaluatorPrompt = buildGoalEvaluatorPrompt(goal)
+            toolResults.push(
+              createUserMessage({ content: evaluatorPrompt, isMeta: true }),
+            )
+          }
+        }
+      }
     }
 
     queryCheckpoint('query_recursive_call')

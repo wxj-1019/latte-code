@@ -545,6 +545,7 @@ class Project {
   currentSessionPrNumber: number | undefined
   currentSessionPrUrl: string | undefined
   currentSessionPrRepository: string | undefined
+  currentSessionGoalState: string | undefined
 
   sessionFile: string | null = null
   // Entries buffered while sessionFile is null. Flushed by materializeSessionFile
@@ -834,6 +835,13 @@ class Project {
         prUrl: this.currentSessionPrUrl,
         prRepository: this.currentSessionPrRepository,
         timestamp: new Date().toISOString(),
+      })
+    }
+    if (this.currentSessionGoalState) {
+      appendEntryToFile(this.sessionFile, {
+        type: 'goal-state',
+        goalState: this.currentSessionGoalState,
+        sessionId,
       })
     }
   }
@@ -2766,6 +2774,7 @@ export function restoreSessionMetadata(meta: {
   prNumber?: number
   prUrl?: string
   prRepository?: string
+  goalState?: string
 }): void {
   const project = getProject()
   // ??= so --name (cacheSessionTitle) wins over the resumed
@@ -2782,6 +2791,7 @@ export function restoreSessionMetadata(meta: {
     project.currentSessionPrNumber = meta.prNumber
   if (meta.prUrl) project.currentSessionPrUrl = meta.prUrl
   if (meta.prRepository) project.currentSessionPrRepository = meta.prRepository
+  if (meta.goalState) project.currentSessionGoalState = meta.goalState
 }
 
 /**
@@ -2802,6 +2812,7 @@ export function clearSessionMetadata(): void {
   project.currentSessionPrNumber = undefined
   project.currentSessionPrUrl = undefined
   project.currentSessionPrRepository = undefined
+  project.currentSessionGoalState = undefined
 }
 
 /**
@@ -2814,6 +2825,17 @@ export function clearSessionMetadata(): void {
  */
 export function reAppendSessionMetadata(): void {
   getProject().reAppendSessionMetadata()
+}
+
+/**
+ * Save the current goal state to session metadata.
+ * Called when a goal is set, updated, or cleared.
+ */
+export function saveGoalState(goalState: string | null): void {
+  const project = getProject()
+  project.currentSessionGoalState = goalState ?? undefined
+  // Re-append metadata so the goal state is persisted to the transcript
+  project.reAppendSessionMetadata()
 }
 
 export async function saveAgentName(
@@ -3492,6 +3514,7 @@ export async function loadTranscriptFile(
   contextCollapseCommits: ContextCollapseCommitEntry[]
   contextCollapseSnapshot: ContextCollapseSnapshotEntry | undefined
   leafUuids: Set<UUID>
+  goalState?: string
 }> {
   const messages = new Map<UUID, TranscriptMessage>()
   const summaries = new Map<UUID, string>()
@@ -3516,6 +3539,8 @@ export async function loadTranscriptFile(
   const contextCollapseCommits: ContextCollapseCommitEntry[] = []
   // Last-wins — later entries supersede.
   let contextCollapseSnapshot: ContextCollapseSnapshotEntry | undefined
+  // Goal state — last occurrence wins for resume
+  let goalState: string | undefined
 
   try {
     // For large transcripts, avoid materializing megabytes of stale content.
@@ -3695,6 +3720,8 @@ export async function loadTranscriptFile(
         contextCollapseCommits.push(entry)
       } else if (entry.type === 'marble-origami-snapshot') {
         contextCollapseSnapshot = entry
+      } else if (entry.type === 'goal-state' && entry.goalState) {
+        goalState = entry.goalState
       }
     }
   } catch {
@@ -3809,6 +3836,7 @@ export async function loadTranscriptFile(
     contextCollapseCommits,
     contextCollapseSnapshot,
     leafUuids,
+    goalState,
   }
 }
 
@@ -4589,6 +4617,7 @@ type LiteMetadata = {
   prNumber?: number
   prUrl?: string
   prRepository?: string
+  goalState?: string
 }
 
 /**
@@ -4796,6 +4825,8 @@ async function readLiteMetadata(
     }
   }
 
+  const goalState = extractLastJsonStringField(tail, 'goalState')
+
   return {
     firstPrompt,
     gitBranch,
@@ -4809,6 +4840,7 @@ async function readLiteMetadata(
     prNumber,
     prUrl,
     prRepository,
+    goalState,
   }
 }
 
