@@ -47,12 +47,12 @@ Summarize accomplishments, note unfinished items, suggest next steps.</goal>`
 
 /**
  * Build the completion prompt when goal is marked complete.
+ * NOTE: Not currently invoked by the goal loop — completion is detected
+ * via the [GOAL_COMPLETED] marker in assistant text. Kept for API completeness.
  */
 export function buildGoalCompletePrompt(goal: Goal): string {
   return `<goal>COMPLETED: ${goal.objective} (${goal.turnsUsed}/${goal.maxTurns} turns). Provide a concise summary.</goal>`
 }
-
-
 
 /**
  * Build the suppression prompt when goal auto-completes due to inactivity.

@@ -37,12 +37,20 @@ export class EventBus {
     }
   }
 
-  once<T>(event: string, callback: EventCallback<T>): void {
+  once<T>(event: string, callback: EventCallback<T>): () => void {
+    let subscribed = true
     const wrapped = (payload: T) => {
+      if (!subscribed) return
+      subscribed = false
       this.off(event, wrapped)
       return callback(payload)
     }
     this.on(event, wrapped)
+    return () => {
+      if (!subscribed) return
+      subscribed = false
+      this.off(event, wrapped)
+    }
   }
 }
 

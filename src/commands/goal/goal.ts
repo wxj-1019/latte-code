@@ -94,7 +94,9 @@ function parseMaxTurns(): number {
 function enableBypassPermissions(context: ToolUseContext): void {
   const appState = context.getAppState()
   const currentMode = appState.toolPermissionContext.mode
-  // Save current mode if not already saved
+  // Already in bypassPermissions — nothing to do (user started with --dangerously-skip-permissions, etc.)
+  if (currentMode === 'bypassPermissions') return
+  // Save current mode if not already saved (preserves the very first mode for nested goal resets)
   if (!getOriginalPermissionMode()) {
     setOriginalPermissionMode(currentMode)
   }
