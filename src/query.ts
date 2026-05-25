@@ -110,6 +110,21 @@ import {
 } from './bootstrap/state.js'
 import { createBudgetTracker, checkTokenBudget } from './query/tokenBudget.js'
 import { count } from './utils/array.js'
+import { getAbortReason } from './utils/abortController.js'
+
+/** Type guard: narrows an arbitrary content block to {@link ToolUseBlock}. */
+function isToolUseBlock(block: { type: string }): block is ToolUseBlock {
+  return block.type === 'tool_use'
+}
+
+/** Safely read the undocumented cache_deleted_input_tokens field from API usage. */
+function getCacheDeletedInputTokens(usage: unknown): number {
+  if (typeof usage === 'object' && usage !== null && 'cache_deleted_input_tokens' in usage) {
+    const val = (usage as Record<string, unknown>).cache_deleted_input_tokens
+    return typeof val === 'number' ? val : 0
+  }
+  return 0
+}
 
 /* eslint-disable @typescript-eslint/no-require-imports */
 const snipModule = feature('HISTORY_SNIP')
@@ -127,8 +142,8 @@ function* yieldMissingToolResultBlocks(
   for (const assistantMessage of assistantMessages) {
     // Extract all tool use blocks from this assistant message
     const toolUseBlocks = assistantMessage.message.content.filter(
-      content => content.type === 'tool_use',
-    ) as ToolUseBlock[]
+      isToolUseBlock,
+    )
 
     // Emit an interruption message for each tool use
     for (const toolUse of toolUseBlocks) {
@@ -744,7 +759,7 @@ async function* queryLoop(
             // fields. The original `message` is left untouched for
             // assistantMessages.push below — it flows back to the API and
             // mutating it would break prompt caching (byte mismatch).
-            let yieldMessage: typeof message = message
+            let yieldMessage: StreamEvent | Message = message
             if (message.type === 'assistant') {
               let clonedContent: typeof message.message.content | undefined
               for (let i = 0; i < message.message.content.length; i++) {
@@ -827,8 +842,8 @@ async function* queryLoop(
               assistantMessages.push(message)
 
               const msgToolUseBlocks = message.message.content.filter(
-                content => content.type === 'tool_use',
-              ) as ToolUseBlock[]
+                isToolUseBlock,
+              )
               if (msgToolUseBlocks.length > 0) {
                 toolUseBlocks.push(...msgToolUseBlocks)
                 needsFollowUp = true
@@ -872,10 +887,7 @@ async function* queryLoop(
             // The API field is cumulative/sticky across requests, so we
             // subtract the baseline captured before this request to get the delta.
             const usage = lastAssistant?.message.usage
-            const cumulativeDeleted = usage
-              ? ((usage as unknown as Record<string, number>)
-                  .cache_deleted_input_tokens ?? 0)
-              : 0
+            const cumulativeDeleted = getCacheDeletedInputTokens(usage)
             const deletedTokens = Math.max(
               0,
               cumulativeDeleted - pendingCacheEdits.baselineCacheDeletedTokens,
@@ -959,7 +971,7 @@ async function* queryLoop(
       logEvent('tengu_query_error', {
         assistantMessages: assistantMessages.length,
         toolUses: assistantMessages.flatMap(_ =>
-          _.message.content.filter(content => content.type === 'tool_use'),
+          _.message.content.filter(isToolUseBlock),
         ).length,
 
         queryChainId: queryChainIdForAnalytics,
@@ -1043,7 +1055,7 @@ async function* queryLoop(
 
       // Skip the interruption message for submit-interrupts — the queued
       // user message that follows provides sufficient context.
-      if (toolUseContext.abortController.signal.reason !== 'interrupt') {
+      if (getAbortReason(toolUseContext.abortController.signal) !== 'interrupt') {
         yield createUserInterruptionMessage({
           toolUse: false,
         })
@@ -1498,7 +1510,7 @@ async function* queryLoop(
       }
       // Skip the interruption message for submit-interrupts — the queued
       // user message that follows provides sufficient context.
-      if (toolUseContext.abortController.signal.reason !== 'interrupt') {
+      if (getAbortReason(toolUseContext.abortController.signal) !== 'interrupt') {
         yield createUserInterruptionMessage({
           toolUse: true,
         })

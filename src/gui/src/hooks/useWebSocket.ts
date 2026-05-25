@@ -152,7 +152,12 @@ function handleServerMessage(msg: ServerMessage) {
       break
 
     case 'gui_error':
-      store.setGenerating(false)
+      // Do NOT reset isGenerating here — only gui_message_stream with
+      // done:true (or gui_query_done) should control that state.
+      // Non-terminal errors (e.g. permission denied for one tool) arrive
+      // mid-query while the backend is still running. Resetting
+      // isGenerating here lets the user re-send prematurely, hitting
+      // "A query is already in progress" on the backend.
       clearGenerationTimeout()
       useToastStore.getState().addToast({ type: 'error', message: msg.payload.message })
       break

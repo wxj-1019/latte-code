@@ -1,6 +1,20 @@
 import { setMaxListeners } from 'events'
 
 /**
+ * Known reason values set via {@link AbortController.abort} across the codebase.
+ * Not exhaustive — callers may pass arbitrary values.
+ */
+export type AbortReason = 'interrupt' | 'sibling_error' | 'user-cancel' | (string & {})
+
+/** {@link AbortSignal} extended with a `reason` property set at abort time. */
+export type AbortSignalWithReason = AbortSignal & { reason?: AbortReason }
+
+/** Safely read the reason from an abort signal. */
+export function getAbortReason(signal: AbortSignal): AbortReason | undefined {
+  return (signal as AbortSignalWithReason).reason
+}
+
+/**
  * Default max listeners for standard operations
  */
 const DEFAULT_MAX_LISTENERS = 50
@@ -32,7 +46,7 @@ function propagateAbort(
   weakChild: WeakRef<AbortController>,
 ): void {
   const parent = this.deref()
-  weakChild.deref()?.abort(parent?.signal.reason)
+  weakChild.deref()?.abort(parent ? getAbortReason(parent.signal) : undefined)
 }
 
 /**
@@ -73,7 +87,7 @@ export function createChildAbortController(
 
   // Fast path: parent already aborted, no listener setup needed
   if (parent.signal.aborted) {
-    child.abort(parent.signal.reason)
+    child.abort(getAbortReason(parent.signal))
     return child
   }
 

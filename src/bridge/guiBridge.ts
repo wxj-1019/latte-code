@@ -57,6 +57,7 @@ export class GuiBridge {
   private alwaysAllowedTools = new Set<string>()
   private permissionCounter = 0
   private isRunning = false
+  private isRunningTimeout: ReturnType<typeof setTimeout> | null = null
   private globalMessageCounter = 0
   private sessionCost = 0
   private pendingFileOps = new Map<string, { toolName: string; filePath: string; oldContent?: string; newContent?: string }>()
@@ -144,6 +145,10 @@ export class GuiBridge {
       this.pendingPermissionTools.clear()
       this.alwaysAllowedTools.clear()
       this.isRunning = false
+      if (this.isRunningTimeout) {
+        clearTimeout(this.isRunningTimeout)
+        this.isRunningTimeout = null
+      }
       this.globalMessageCounter = 0
       this.sessionCost = 0
       this.toolUseNameMap.clear()
@@ -191,6 +196,31 @@ export class GuiBridge {
 
     this.isRunning = true
     this.engine.resetAbortController()
+
+    // Safety timeout: if isRunning stays true for more than 5 minutes,
+    // force-reset it to prevent permanent lockout. This should never
+    // happen in normal operation but guards against generator hangs.
+    if (this.isRunningTimeout) clearTimeout(this.isRunningTimeout)
+    this.isRunningTimeout = setTimeout(() => {
+      if (this.isRunning) {
+        logForDebugging('[GuiBridge] ⚠️ isRunning safety timeout — force resetting')
+        this.isRunning = false
+        this.broadcast({
+          type: 'gui_error',
+          payload: { message: 'Query timed out. You can try sending again.' },
+        } as GuiError)
+        this.broadcast({
+          type: 'gui_message_stream',
+          payload: {
+            messageId: `assistant-${this.globalMessageCounter}`,
+            role: 'assistant',
+            content: '',
+            done: true,
+            timestamp: Date.now(),
+          },
+        } as GuiMessageStream)
+      }
+    }, 300_000)
     const userMessageId = `user-${++this.globalMessageCounter}`
     const assistantMessageId = `assistant-${++this.globalMessageCounter}`
     const userMsg: GuiMessageItem = {
@@ -258,9 +288,15 @@ export class GuiBridge {
 
       for await (const msg of generator) {
         this.handleSDKMessage(msg as SDKMessage, assistantMessageId,
-          (deltaContent?: string, deltaThinking?: string, done?: boolean) => {
-            if (deltaContent !== undefined) currentContent += deltaContent
-            if (deltaThinking !== undefined) currentThinking += deltaThinking
+          (deltaContent?: string, deltaThinking?: string, done?: boolean, isFullContent?: boolean) => {
+            if (deltaContent !== undefined) {
+              if (isFullContent) currentContent = deltaContent
+              else currentContent += deltaContent
+            }
+            if (deltaThinking !== undefined) {
+              if (isFullContent) currentThinking = deltaThinking
+              else currentThinking += deltaThinking
+            }
             if (done === true) hasBroadcastFinal = true
             broadcastStream(done)
           },
@@ -288,8 +324,15 @@ export class GuiBridge {
         } as GuiError)
       }
     } finally {
+      // Critical: clear isRunning BEFORE broadcasting done:true.
+      // Otherwise the frontend can re-enable input and race with the
+      // guard at the top of handleUserInput.
       this.isRunning = false
       this.pendingFileOps.clear()
+      if (this.isRunningTimeout) {
+        clearTimeout(this.isRunningTimeout)
+        this.isRunningTimeout = null
+      }
 
       // Ensure frontend always receives done:true to reset isGenerating,
       // even when the generator throws, is aborted, or completes without
@@ -354,6 +397,10 @@ export class GuiBridge {
     this.pendingPermissionTools.clear()
     this.engine = null
     this.isRunning = false
+    if (this.isRunningTimeout) {
+      clearTimeout(this.isRunningTimeout)
+      this.isRunningTimeout = null
+    }
     this.globalMessageCounter = 0
     this.sessionCost = 0
     this.toolUseNameMap.clear()
@@ -483,6 +530,10 @@ export class GuiBridge {
     if (this.isRunning) {
       this.engine?.interrupt()
       this.isRunning = false
+      if (this.isRunningTimeout) {
+        clearTimeout(this.isRunningTimeout)
+        this.isRunningTimeout = null
+      }
       this.broadcast({
         type: 'gui_message_stream',
         payload: {
@@ -500,6 +551,10 @@ export class GuiBridge {
   handleInterrupt() {
     this.engine?.interrupt()
     this.isRunning = false
+    if (this.isRunningTimeout) {
+      clearTimeout(this.isRunningTimeout)
+      this.isRunningTimeout = null
+    }
     this.pendingFileOps.clear()
     this.toolUseNameMap.clear()
     for (const [requestId, deferred] of this.pendingPermissions) {
@@ -563,7 +618,7 @@ export class GuiBridge {
   private handleSDKMessage(
     msg: SDKMessage,
     assistantMessageId: string,
-    onUpdate: (content?: string, thinking?: string, done?: boolean) => void,
+    onUpdate: (content?: string, thinking?: string, done?: boolean, isFullContent?: boolean) => void,
     onToolUse?: (toolUse: { id: string; name: string; input: Record<string, unknown> }) => void,
     onToolResult?: (toolResult: { toolUseId: string; content: string; isError?: boolean }) => void,
   ) {
@@ -664,7 +719,11 @@ export class GuiBridge {
             }
           }
           if (text || thinking) {
-            onUpdate(text || undefined, thinking || undefined, undefined)
+            // Pass isFullContent=true so the callback replaces rather than
+            // appends. assistant_partial deltas have already been streamed
+            // incrementally; the final assistant message carries the full
+            // text/thinking blocks and must not double-count them.
+            onUpdate(text || undefined, thinking || undefined, undefined, true)
           }
         }
         break
@@ -730,6 +789,11 @@ export class GuiBridge {
             } as GuiError)
           }
         }
+        // Do NOT broadcast done:true here. The finally-block in
+        // handleUserInput is the single authoritative source for
+        // signaling query completion. Sending done:true here while
+        // isRunning is still true causes a race where the frontend
+        // re-enables the input before the backend is truly idle.
         this.broadcastMetadata()
         break
       }
