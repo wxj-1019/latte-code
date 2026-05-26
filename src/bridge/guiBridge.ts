@@ -12,6 +12,7 @@ import type { ContentBlockParam } from '@anthropic-ai/sdk/resources/messages.mjs
 import { homedir } from 'os'
 import { join } from 'path'
 import { mkdirSync, readFileSync, writeFileSync, existsSync, unlinkSync, readdirSync } from 'fs'
+import { globalEventBus, Events } from '../events/EventBus.js'
 
 let designMdSkillModule: any = null
 let generateCapabilityModule: any = null

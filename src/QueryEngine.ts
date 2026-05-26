@@ -2,6 +2,7 @@ import { feature } from 'bun:bundle'
 import type { ContentBlockParam } from '@anthropic-ai/sdk/resources/messages.mjs'
 import { randomUUID } from 'crypto'
 import last from 'lodash-es/last.js'
+import { globalEventBus, Events } from './events/EventBus.js'
 import {
   getSessionId,
   isSessionPersistenceDisabled,
@@ -240,6 +241,13 @@ export class QueryEngine {
     const persistSession = !isSessionPersistenceDisabled()
     const startTime = Date.now()
 
+    // Emit query start event for bridge decoupling
+    globalEventBus.emit(Events.QUERY_START, {
+      sessionId: getSessionId(),
+      prompt: typeof prompt === 'string' ? prompt : '[complex prompt]',
+      timestamp: startTime,
+    })
+
     // Wrap canUseTool to track permission denials
     const wrappedCanUseTool: CanUseToolFn = async (
       tool,
@@ -403,6 +411,11 @@ export class QueryEngine {
         this.mutableMessages,
         processUserInputContext,
       )) {
+        // Emit message event for bridge decoupling
+        globalEventBus.emit(Events.QUERY_MESSAGE, {
+          sessionId: getSessionId(),
+          message,
+        })
         yield message
       }
     }

@@ -26,7 +26,8 @@ import { getRuntimeMainLoopModel, type ModelName, renderModelName } from '../uti
 import { getCurrentSessionTitle } from '../utils/sessionStorage.js';
 import { doesMostRecentAssistantMessageExceed200k, getCurrentUsage } from '../utils/tokens.js';
 import { getCurrentWorktreeSession } from '../utils/worktree.js';
-import { isVimModeEnabled } from './PromptInput/utils.js';
+import { isVimModeEnabled } from './PromptInput/utils.js'
+import { getGoal, getGoalDurationMs } from '../commands/goal/goalState.js'
 export function statusLineShouldDisplay(settings: ReadonlySettings): boolean {
   // Assistant mode: statusline fields (model, permission mode, cwd) reflect the
   // REPL/daemon process, not what the agent child is actually running. Hide it.
@@ -306,6 +307,20 @@ function StatusLineInner({
   // Get padding from settings or default to 0
   const paddingX = settings?.statusLine?.padding ?? 0;
 
+  // Goal status display — memoized to avoid recalculation on every render
+  const goal = getGoal()
+  const goalText = React.useMemo<string | null>(() => {
+    if (!goal) return null
+    const duration = getGoalDurationMs()
+    const durationSec = Math.floor(duration / 1000)
+    const durationMin = Math.floor(durationSec / 60)
+    const durationStr = durationMin > 0 ? `${durationMin}m ${durationSec % 60}s` : `${durationSec}s`
+    const tokenStr = goal.tokensSpent > 0 ? ` | ${(goal.tokensSpent / 1000).toFixed(1)}k tok` : ''
+    const reasonStr = goal.evaluatorReason ? ` | "${goal.evaluatorReason.slice(0, 25)}${goal.evaluatorReason.length > 25 ? '...' : ''}"` : ''
+    const objDisplay = goal.objective.slice(0, 25) + (goal.objective.length > 25 ? '...' : '')
+    return `\u25cf /goal ${goal.status} (${durationStr}) | ${goal.turnsUsed}/${goal.maxTurns}${tokenStr}${reasonStr} | ${objDisplay}`
+  }, [goal?.status, goal?.turnsUsed, goal?.maxTurns, goal?.tokensSpent, goal?.evaluatorReason, goal?.objective])
+
   // StatusLine must have stable height in fullscreen — the footer is
   // flexShrink:0 so a 0→1 row change when the command finishes steals
   // a row from ScrollBox and shifts content. Reserve the row while loading
@@ -314,6 +329,11 @@ function StatusLineInner({
       {statusLineText ? <Text dimColor wrap="truncate">
           <Ansi>{statusLineText}</Ansi>
         </Text> : isFullscreenEnvEnabled() ? <Text> </Text> : null}
+      {goalText ? (
+        <Text dimColor wrap="truncate" color="yellow">
+          {goalText}
+        </Text>
+      ) : null}
     </Box>;
 }
 

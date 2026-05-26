@@ -55,6 +55,27 @@ import {
   stripSignatureBlocks,
 } from './utils/messages.js'
 import { generateToolUseSummary } from './services/toolUseSummary/toolUseSummaryGenerator.js'
+import {
+  getGoal,
+  incrementTurn,
+  isGoalActive,
+  isConditionMode,
+  markGoalBudgetLimited,
+  markGoalComplete,
+  recordToolCallPresence,
+  shouldSuppressContinuation,
+  updateEvaluatorReason,
+  addTokensSpent,
+  getConsecutiveZeroToolCalls,
+  getOriginalPermissionMode,
+  setOriginalPermissionMode,
+} from './commands/goal/goalState.js'
+import {
+  buildGoalBudgetLimitPrompt,
+  buildGoalContinuationPrompt,
+  buildGoalSuppressionPrompt,
+  buildGoalEvaluatorPrompt,
+} from './commands/goal/goalPrompts.js'
 import { prependUserContext, appendSystemContext } from './utils/api.js'
 import {
   createAttachmentMessage,
@@ -308,6 +329,21 @@ async function* queryLoop(
   // Snapshot immutable env/statsig/session state once at entry. See QueryConfig
   // for what's included and why feature() gates are intentionally excluded.
   const config = buildQueryConfig()
+
+  // Helper to restore original permission mode when goal terminates
+  const restoreGoalPermissions = (ctx: ToolUseContext) => {
+    const originalMode = getOriginalPermissionMode()
+    if (originalMode) {
+      ctx.setAppState(prev => ({
+        ...prev,
+        toolPermissionContext: {
+          ...prev.toolPermissionContext,
+          mode: originalMode,
+        },
+      }))
+      setOriginalPermissionMode(null)
+    }
+  }
 
   // Fired once per user turn — the prompt is invariant across loop iterations,
   // so per-iteration firing would ask sideQuery the same question N times.
@@ -1721,6 +1757,81 @@ async function* queryLoop(
         turnCount: nextTurnCount,
       })
       return { reason: 'max_turns', turnCount: nextTurnCount }
+    }
+
+    // Goal system integration
+    const goal = getGoal()
+    if (goal) {
+      incrementTurn()
+
+      // Track token usage for goal statistics
+      const turnInputTokens = assistantMessages.reduce((sum, m) => sum + (m.usage?.inputTokens || 0), 0)
+      const turnOutputTokens = assistantMessages.reduce((sum, m) => sum + (m.usage?.outputTokens || 0), 0)
+      addTokensSpent(turnInputTokens + turnOutputTokens)
+
+      // Check for continuation suppression (no tool calls)
+      const hadToolCalls = toolUseBlocks.length > 0
+      recordToolCallPresence(hadToolCalls)
+
+      if (isGoalActive()) {
+        // Check for auto-completion marker in assistant messages
+        // Only check text blocks, not tool_use blocks
+        let assistantText = ''
+        for (const m of assistantMessages) {
+          if (typeof m.content === 'string') {
+            assistantText += m.content
+          } else if (Array.isArray(m.content)) {
+            for (const c of m.content) {
+              if (typeof c === 'string') assistantText += c
+              else if (c && typeof c === 'object' && c.type === 'text' && typeof c.text === 'string') {
+                assistantText += c.text
+              }
+            }
+          }
+        }
+
+        if (assistantText.includes('[GOAL_COMPLETED]')) {
+          markGoalComplete()
+          updateEvaluatorReason('Model reported goal completion')
+          // Restore original permission mode when goal completes
+          restoreGoalPermissions(toolUseContext)
+          // Goal will be shown as complete in status line
+        } else if (goal.turnsUsed >= goal.maxTurns) {
+          markGoalBudgetLimited()
+          // Restore original permission mode when budget is reached
+          restoreGoalPermissions(toolUseContext)
+          const budgetMessage = buildGoalBudgetLimitPrompt(goal)
+          toolResults.push(
+            createUserMessage({ content: budgetMessage, isMeta: true }),
+          )
+        } else if (shouldSuppressContinuation()) {
+          // Too many consecutive turns without tool calls
+          markGoalComplete()
+          // Restore original permission mode when goal is suppressed
+          restoreGoalPermissions(toolUseContext)
+          const suppressionMessage = buildGoalSuppressionPrompt(
+            goal,
+            getConsecutiveZeroToolCalls(),
+          )
+          toolResults.push(
+            createUserMessage({ content: suppressionMessage, isMeta: true }),
+          )
+        } else {
+          // Inject goal continuation prompt
+          const continuationPrompt = buildGoalContinuationPrompt(goal)
+          toolResults.push(
+            createUserMessage({ content: continuationPrompt, isMeta: true }),
+          )
+
+          // For condition-mode goals, also inject evaluator prompt
+          if (isConditionMode()) {
+            const evaluatorPrompt = buildGoalEvaluatorPrompt(goal)
+            toolResults.push(
+              createUserMessage({ content: evaluatorPrompt, isMeta: true }),
+            )
+          }
+        }
+      }
     }
 
     queryCheckpoint('query_recursive_call')

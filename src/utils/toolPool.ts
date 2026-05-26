@@ -4,6 +4,64 @@ import uniqBy from 'lodash-es/uniqBy.js'
 import { COORDINATOR_MODE_ALLOWED_TOOLS } from '../constants/tools.js'
 import { isMcpTool } from '../services/mcp/utils.js'
 import type { Tool, ToolPermissionContext, Tools } from '../Tool.js'
+import { getDenyRuleForTool } from './permissions/permissions.js'
+
+/**
+ * Filters out tools that are blanket-denied by the permission context.
+ * A tool is filtered out if there's a deny rule matching its name with no
+ * ruleContent (i.e., a blanket deny for that tool).
+ */
+export function filterToolsByDenyRules<
+  T extends {
+    name: string
+    mcpInfo?: { serverName: string; toolName: string }
+  },
+>(tools: readonly T[], permissionContext: ToolPermissionContext): T[] {
+  return tools.filter(tool => !getDenyRuleForTool(permissionContext, tool as Pick<Tool, 'name' | 'mcpInfo'>))
+}
+
+/**
+ * Assemble the full tool pool for a given permission context and MCP tools.
+ *
+ * This is the core implementation that doesn't depend on tools.ts.
+ * tools.ts re-exports a wrapper that injects getTools.
+ *
+ * @param getBuiltInTools - Function to get built-in tools for the permission context
+ * @param permissionContext - Permission context for filtering built-in tools
+ * @param mcpTools - MCP tools from appState.mcp.tools
+ * @returns Combined, deduplicated array of built-in and MCP tools
+ */
+export function assembleToolPoolCore(
+  getBuiltInTools: (permissionContext: ToolPermissionContext) => Tools,
+  permissionContext: ToolPermissionContext,
+  mcpTools: Tools,
+): Tools {
+  const builtInTools = getBuiltInTools(permissionContext)
+
+  // Filter out MCP tools that are in the deny list
+  const allowedMcpTools = filterToolsByDenyRules(mcpTools, permissionContext)
+
+  // Sort each partition for prompt-cache stability
+  const byName = (a: Tool, b: Tool) => a.name.localeCompare(b.name)
+  return uniqBy(
+    [...builtInTools].sort(byName).concat(allowedMcpTools.sort(byName)),
+    'name',
+  )
+}
+
+/**
+ * Default assembleToolPool that lazily loads getTools from tools.ts.
+ * Use this when you don't have a custom getBuiltInTools function.
+ * This breaks the circular dependency by using lazy require.
+ */
+export function assembleToolPool(
+  permissionContext: ToolPermissionContext,
+  mcpTools: Tools,
+): Tools {
+  // Lazy require to break circular dependency
+  const { getTools } = require('../tools.js') as typeof import('../tools.js')
+  return assembleToolPoolCore(getTools, permissionContext, mcpTools)
+}
 
 // MCP tool name suffixes for PR activity subscription. These are lightweight
 // orchestration actions the coordinator calls directly rather than delegating
