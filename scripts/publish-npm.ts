@@ -66,7 +66,12 @@ function publishPackage(pkgDir: string, pkgName: string, pkgVersion: string): vo
     console.log(`    [i] ${pkgName}@${pkgVersion} already published, skipping`)
     return
   }
-  const result = run(['npm', 'publish', '--access', 'public'], pkgDir)
+  const args = ['npm', 'publish', '--access', 'public']
+  const otp = process.env.NPM_OTP
+  if (otp) {
+    args.push('--otp', otp)
+  }
+  const result = run(args, pkgDir)
   if (!result.success) {
     console.error(`    [x] Failed to publish ${pkgName}`)
     console.error(`    ${result.stderr}`)
