@@ -1181,6 +1181,7 @@ async function hasPermissionsToUseToolInner(
   }
 
   // 1b. Check if the entire tool should always ask for permission
+  // Skip if bypassPermissions mode is active (e.g. /goal autonomous execution)
   const askRule = getAskRuleForTool(appState.toolPermissionContext, tool)
   if (askRule) {
     // When autoAllowBashIfSandboxed is on, sandboxed commands skip the ask rule and
@@ -1193,13 +1194,21 @@ async function hasPermissionsToUseToolInner(
       shouldUseSandbox(input)
 
     if (!canSandboxAutoAllow) {
-      return {
-        behavior: 'ask',
-        decisionReason: {
-          type: 'rule',
-          rule: askRule,
-        },
-        message: createPermissionRequestMessage(tool.name),
+      // Check bypass mode before returning ask — bypass should override ask rules
+      const bypassState = context.getAppState()
+      const isBypass =
+        bypassState.toolPermissionContext.mode === 'bypassPermissions' ||
+        (bypassState.toolPermissionContext.mode === 'plan' &&
+          bypassState.toolPermissionContext.isBypassPermissionsModeAvailable)
+      if (!isBypass) {
+        return {
+          behavior: 'ask',
+          decisionReason: {
+            type: 'rule',
+            rule: askRule,
+          },
+          message: createPermissionRequestMessage(tool.name),
+        }
       }
     }
     // Fall through to let Bash's checkPermissions handle command-specific rules
@@ -1250,13 +1259,20 @@ async function hasPermissionsToUseToolInner(
   }
 
   // 1g. Safety checks (e.g. .git/, .claude/, .vscode/, shell configs) are
-  // bypass-immune — they must prompt even in bypassPermissions mode.
-  // checkPathSafetyForAutoEdit returns {type:'safetyCheck'} for these paths.
+  // bypass-immune by default — but respect bypassPermissions mode for
+  // autonomous execution (e.g. /goal command).
   if (
     toolPermissionResult?.behavior === 'ask' &&
     toolPermissionResult.decisionReason?.type === 'safetyCheck'
   ) {
-    return toolPermissionResult
+    const bypassState = context.getAppState()
+    const isBypass =
+      bypassState.toolPermissionContext.mode === 'bypassPermissions' ||
+      (bypassState.toolPermissionContext.mode === 'plan' &&
+        bypassState.toolPermissionContext.isBypassPermissionsModeAvailable)
+    if (!isBypass) {
+      return toolPermissionResult
+    }
   }
 
   // 2a. Check if mode allows the tool to run
