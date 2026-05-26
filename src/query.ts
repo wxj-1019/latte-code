@@ -1402,6 +1402,73 @@ async function* queryLoop(
         }
       }
 
+      // Goal continuation: when the model finishes without tool calls,
+      // check if a goal is still active and inject a continuation prompt
+      // instead of exiting the loop.
+      const goalOnEndTurn = getGoal()
+      if (goalOnEndTurn) {
+        incrementTurn()
+
+        const endTurnInputTokens = assistantMessages.reduce(
+          (sum, m) => sum + (m.usage?.inputTokens || 0), 0,
+        )
+        const endTurnOutputTokens = assistantMessages.reduce(
+          (sum, m) => sum + (m.usage?.outputTokens || 0), 0,
+        )
+        addTokensSpent(endTurnInputTokens + endTurnOutputTokens)
+
+        recordToolCallPresence(false)
+
+        if (isGoalActive()) {
+          let assistantText = ''
+          for (const m of assistantMessages) {
+            if (typeof m.content === 'string') {
+              assistantText += m.content
+            } else if (Array.isArray(m.content)) {
+              for (const c of m.content) {
+                if (typeof c === 'string') assistantText += c
+                else if (c && typeof c === 'object' && c.type === 'text' && typeof c.text === 'string') {
+                  assistantText += c.text
+                }
+              }
+            }
+          }
+
+          if (assistantText.includes('[GOAL_COMPLETED]')) {
+            markGoalComplete()
+            updateEvaluatorReason('Model reported goal completion')
+            restoreGoalPermissions(toolUseContext)
+          } else if (goalOnEndTurn.turnsUsed >= goalOnEndTurn.maxTurns) {
+            markGoalBudgetLimited()
+            restoreGoalPermissions(toolUseContext)
+          } else if (shouldSuppressContinuation()) {
+            markGoalComplete()
+            restoreGoalPermissions(toolUseContext)
+          } else {
+            const continuationPrompt = buildGoalContinuationPrompt(goalOnEndTurn)
+            const continuationMsg = createUserMessage({
+              content: continuationPrompt,
+              isMeta: true,
+            })
+
+            const endTurnNext: State = {
+              messages: [...messagesForQuery, ...assistantMessages, continuationMsg],
+              toolUseContext,
+              autoCompactTracking: tracking,
+              turnCount: turnCount + 1,
+              maxOutputTokensRecoveryCount: 0,
+              hasAttemptedReactiveCompact: false,
+              pendingToolUseSummary: undefined,
+              maxOutputTokensOverride: undefined,
+              stopHookActive: undefined,
+              transition: { reason: 'goal_continuation' },
+            }
+            state = endTurnNext
+            continue
+          }
+        }
+      }
+
       return { reason: 'completed' }
     }
 

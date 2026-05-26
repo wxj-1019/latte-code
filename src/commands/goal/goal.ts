@@ -9,7 +9,7 @@
  *   /goal clear        - Clear current goal
  */
 
-import type { LocalCommandResult } from '../../types/command.js'
+import type { LocalCommandCall, LocalCommandResult, LocalJSXCommandContext } from '../../types/command.js'
 import type { ToolUseContext } from '../../Tool.js'
 import {
   clearGoal,
@@ -23,7 +23,7 @@ import {
   getOriginalPermissionMode,
   setOriginalPermissionMode,
 } from './goalState.js'
-import { buildGoalInitialPrompt } from './goalPrompts.js'
+import { buildGoalInitialPrompt, buildGoalContinuationPrompt } from './goalPrompts.js'
 
 const SUBCOMMANDS = ['pause', 'resume', 'clear', 'status', 'stop', 'off', 'reset', 'cancel']
 
@@ -127,10 +127,10 @@ function restoreOriginalPermissions(context: ToolUseContext): void {
   }
 }
 
-export default async function goal(
+export const call: LocalCommandCall = async (
   args: string,
-  context: ToolUseContext,
-): Promise<LocalCommandResult> {
+  context: LocalJSXCommandContext,
+): Promise<LocalCommandResult> => {
   const trimmed = args.trim()
 
   // No args - show status
@@ -165,7 +165,8 @@ export default async function goal(
       }
       resumeGoal()
       enableBypassPermissions(context)
-      return { type: 'text', value: `Goal resumed: ${goal.objective}` }
+      const continuationPrompt = buildGoalContinuationPrompt(getGoal()!)
+      return { type: 'query', value: continuationPrompt, displayText: `Goal resumed: ${goal.objective}` }
     }
 
     case 'clear':
@@ -215,7 +216,7 @@ export default async function goal(
       const initialPrompt = buildGoalInitialPrompt(objective, maxTurns, mode, condition)
 
       const modeLabel = mode === 'condition' ? 'Condition' : 'Objective'
-      return { type: 'text', value: `Goal set: ${objective}\nMode: ${modeLabel}\nMax turns: ${maxTurns}\n\n${initialPrompt}` }
+      return { type: 'query', value: initialPrompt, displayText: `Goal set: ${objective}\nMode: ${modeLabel}\nMax turns: ${maxTurns}` }
     }
   }
 }

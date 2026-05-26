@@ -56,6 +56,7 @@ export type ContinueReason =
   | 'max_output_tokens_recovery'
   | 'stop_hook_blocking'
   | 'token_budget_continuation'
+  | 'goal_continuation'
 
 /**
  * Stored on `State.transition` at each continue site.

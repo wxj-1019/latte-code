@@ -21,6 +21,7 @@ export type LocalCommandResult =
       displayText?: string
     }
   | { type: 'skip' } // Skip messages
+  | { type: 'query'; value: string; displayText?: string } // Send value as user message and trigger model query
 
 export type PromptCommand = {
   type: 'prompt'
