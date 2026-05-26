@@ -401,9 +401,20 @@ export const SkillTool: Tool<InputSchema, Output, Progress> = buildTool({
     // Check if command exists
     const foundCommand = findCommand(normalizedCommandName, commands)
     if (!foundCommand) {
+      // Include available skills in the error message to prevent hallucination
+      const availableSkills = commands
+        .filter(cmd => cmd.type === 'prompt')
+        .slice(0, 50)
+        .map(cmd => cmd.name)
+      const skillList = availableSkills.length > 0
+        ? availableSkills.join(', ')
+        : 'none'
+      const truncationNote = availableSkills.length < commands.filter(c => c.type === 'prompt').length
+        ? '\n(Additional skills available but not listed due to space limits)'
+        : ''
       return {
         result: false,
-        message: `Unknown skill: ${normalizedCommandName}`,
+        message: `Unknown skill: ${normalizedCommandName}.\n\nAvailable skills: ${skillList}${truncationNote}\n\nIMPORTANT: Only use skills from this list. Do not guess or invent skill names.`,
         errorCode: 2,
       }
     }
