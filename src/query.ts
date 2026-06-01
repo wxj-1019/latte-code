@@ -62,6 +62,7 @@ import {
   isConditionMode,
   markGoalBudgetLimited,
   markGoalComplete,
+  markCompletionSignalSent,
   recordToolCallPresence,
   shouldSuppressContinuation,
   updateEvaluatorReason,
@@ -1435,6 +1436,7 @@ async function* queryLoop(
 
           if (assistantText.includes('[GOAL_COMPLETED]')) {
             markGoalComplete()
+            markCompletionSignalSent()
             updateEvaluatorReason('Model reported goal completion')
             restoreOriginalPermissionMode(toolUseContext.setAppState.bind(toolUseContext))
           } else if (goalOnEndTurn.turnsUsed >= goalOnEndTurn.maxTurns) {
@@ -1845,6 +1847,7 @@ async function* queryLoop(
 
         if (assistantText.includes('[GOAL_COMPLETED]')) {
           markGoalComplete()
+          markCompletionSignalSent()
           updateEvaluatorReason('Model reported goal completion')
           restoreOriginalPermissionMode(toolUseContext.setAppState.bind(toolUseContext))
           // Goal will be shown as complete in status line

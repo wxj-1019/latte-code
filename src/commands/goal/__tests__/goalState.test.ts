@@ -43,11 +43,21 @@ import {
   recordCompact,
   getCompactStatus,
   getGoalSummary,
+  getAuditLog,
+  clearAuditLog,
+  getGoalMetrics,
+  resetMetrics,
+  getWebhookConfig,
+  setWebhookConfig,
+  resetReflectionCooldown,
 } from '../goalState.js'
 
 describe('goalState', () => {
   beforeEach(() => {
     clearGoal()
+    clearAuditLog()
+    resetMetrics()
+    resetReflectionCooldown()
     setOriginalPermissionMode(null)
     resetZeroToolCallCounter()
   })
@@ -581,6 +591,140 @@ describe('goalState', () => {
       recordStepFailure(0, 'Connection failed')
       const summary = getGoalSummary()
       expect(summary).toContain('Connection failed')
+    })
+  })
+
+  describe('enterprise features: audit logging', () => {
+    it('should record audit entry when goal is created', () => {
+      setGoal('test objective')
+      const auditLog = getAuditLog()
+      expect(auditLog.length).toBeGreaterThan(0)
+      expect(auditLog[0].action).toBe('created')
+      expect(auditLog[0].objective).toBe('test objective')
+    })
+
+    it('should record audit entry when goal is paused', () => {
+      setGoal('test')
+      pauseGoal()
+      const auditLog = getAuditLog()
+      const pauseEntry = auditLog.find(e => e.action === 'paused')
+      expect(pauseEntry).toBeDefined()
+    })
+
+    it('should record audit entry when goal is resumed', () => {
+      setGoal('test')
+      pauseGoal()
+      resumeGoal()
+      const auditLog = getAuditLog()
+      const resumeEntry = auditLog.find(e => e.action === 'resumed')
+      expect(resumeEntry).toBeDefined()
+    })
+
+    it('should record audit entry when goal is completed', () => {
+      setGoal('test')
+      markGoalComplete()
+      const auditLog = getAuditLog()
+      const completeEntry = auditLog.find(e => e.action === 'completed')
+      expect(completeEntry).toBeDefined()
+      expect(completeEntry.metadata).toHaveProperty('turnsUsed')
+      expect(completeEntry.metadata).toHaveProperty('tokensSpent')
+    })
+
+    it('should record audit entry when goal is budget limited', () => {
+      setGoal('test')
+      markGoalBudgetLimited()
+      const auditLog = getAuditLog()
+      const budgetEntry = auditLog.find(e => e.action === 'budget_exhausted')
+      expect(budgetEntry).toBeDefined()
+    })
+
+    it('should record audit entry when strategy changes', () => {
+      setGoal('test')
+      initReflection(1)
+      incrementTurn()
+      recordStrategyChange('New strategy')
+      const auditLog = getAuditLog()
+      const strategyEntry = auditLog.find(e => e.action === 'strategy_changed')
+      expect(strategyEntry).toBeDefined()
+      expect(strategyEntry.metadata).toHaveProperty('change', 'New strategy')
+    })
+
+    it('should record audit entry on step failure', () => {
+      setGoal('test')
+      updateExecutionPlan(['Step 1'])
+      recordStepFailure(0, 'Error occurred')
+      const auditLog = getAuditLog()
+      const failureEntry = auditLog.find(e => e.action === 'failed' && e.metadata?.reason === 'step_failure')
+      expect(failureEntry).toBeDefined()
+      expect(failureEntry.metadata).toHaveProperty('error', 'Error occurred')
+    })
+
+    it('should record audit entry when goal is cleared', () => {
+      setGoal('test')
+      clearGoal()
+      const auditLog = getAuditLog()
+      const clearEntry = auditLog.find(e => e.action === 'failed' && e.metadata?.reason === 'manually_cleared')
+      expect(clearEntry).toBeDefined()
+    })
+  })
+
+  describe('enterprise features: metrics collection', () => {
+    it('should track total goals created', () => {
+      setGoal('test 1')
+      setGoal('test 2')
+      const metrics = getGoalMetrics()
+      expect(metrics.totalGoalsCreated).toBeGreaterThanOrEqual(2)
+    })
+
+    it('should track total goals completed', () => {
+      setGoal('test')
+      markGoalComplete()
+      const metrics = getGoalMetrics()
+      expect(metrics.totalGoalsCompleted).toBeGreaterThanOrEqual(1)
+    })
+
+    it('should track total goals failed', () => {
+      setGoal('test')
+      markGoalBudgetLimited()
+      const metrics = getGoalMetrics()
+      expect(metrics.totalGoalsFailed).toBeGreaterThanOrEqual(1)
+    })
+
+    it('should calculate success rate', () => {
+      const metrics = getGoalMetrics()
+      expect(metrics.successRate).toBeGreaterThanOrEqual(0)
+      expect(metrics.successRate).toBeLessThanOrEqual(100)
+    })
+
+    it('should calculate average turns per goal', () => {
+      const metrics = getGoalMetrics()
+      expect(metrics.averageTurnsPerGoal).toBeGreaterThanOrEqual(0)
+    })
+  })
+
+  describe('enterprise features: webhook configuration', () => {
+    it('should set and get webhook config', () => {
+      const config = {
+        url: 'https://example.com/webhook',
+        events: ['created', 'completed' as const],
+        secret: 'test-secret',
+      }
+      setWebhookConfig(config)
+      expect(getWebhookConfig()).toEqual(config)
+    })
+
+    it('should clear webhook config', () => {
+      setWebhookConfig({
+        url: 'https://example.com/webhook',
+        events: ['created'],
+      })
+      setWebhookConfig(null)
+      expect(getWebhookConfig()).toBeNull()
+    })
+
+    it('should return null when no webhook configured', () => {
+      setWebhookConfig(null)
+      expect(getWebhookConfig()).toBeNull()
     })
   })
 })

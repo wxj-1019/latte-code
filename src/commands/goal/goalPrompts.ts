@@ -11,14 +11,24 @@
  * - Include progress metrics for context awareness
  */
 
-import { type Goal, getExecutionProgress, getErrorRecoveryHint, getReflectionPrompt, getSubtaskProgress, getNextSubtask, getCompactStatus } from './goalState.js'
+import { type Goal, getExecutionProgress, getErrorRecoveryHint, getReflectionPrompt, getSubtaskProgress, getNextSubtask, getCompactStatus, isCompletionSignalSent } from './goalState.js'
 
 /**
  * Build the continuation prompt injected when a goal is active.
  * This reminds the model of the objective and encourages progress.
  * Includes self-evaluation requirement for condition-mode goals.
+ *
+ * Now includes completion signal check to prevent repeated signaling.
  */
 export function buildGoalContinuationPrompt(goal: Goal): string {
+  // If completion signal already sent, return minimal prompt to save tokens
+  if (isCompletionSignalSent()) {
+    return `<goal>Objective: ${goal.objective}
+Status: completing...
+
+[GOAL_COMPLETED]</goal>`
+  }
+
   const remainingTurns = goal.maxTurns - goal.turnsUsed
   const urgencyPrefix = remainingTurns <= 3
     ? `[URGENT: ${remainingTurns} turn${remainingTurns === 1 ? '' : 's'} left - focus on completion]\n`
@@ -143,6 +153,7 @@ WORKFLOW (must follow in order):
 
 1. RESEARCH PHASE:
    - Use Grep, Glob, Read, WebSearch, WebFetch tools to gather information
+   - Check if any available skills match the task (use Skill tool when appropriate)
    - Understand the current state, constraints, and requirements
    - Do NOT skip this phase - thorough research prevents wasted turns
 
@@ -151,10 +162,12 @@ WORKFLOW (must follow in order):
    - Each step should be specific and actionable
    - Output the plan as a clear markdown list before executing
    - Identify steps that can be parallelized (independent tasks)
+   - Identify which steps can leverage existing skills
 
 3. EXECUTE PHASE:
    - Follow the plan step by step
    - Use tools to implement each step
+   - Invoke relevant skills via the Skill tool when they can help
    - Track progress: mark completed steps with [x]
    - For independent steps, consider executing in parallel using multiple tool calls
    - If a step fails, record the error and try an alternative approach

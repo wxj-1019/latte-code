@@ -26,6 +26,7 @@ import {
   formatGoalStatus,
   markGoalComplete,
   isGoalActive,
+  resetReflectionCooldown,
 } from '../goalState.js'
 import {
   buildGoalInitialPrompt,
@@ -36,6 +37,7 @@ import {
 describe('Goal Integration Tests', () => {
   beforeEach(() => {
     clearGoal()
+    resetReflectionCooldown()
     resetZeroToolCallCounter()
   })
 
@@ -255,6 +257,9 @@ describe('Goal Integration Tests', () => {
       incrementTurn()
       incrementTurn()
       incrementTurn()
+
+      // Reset cooldown to allow reflection in test
+      resetReflectionCooldown()
 
       // Should reflect again
       expect(shouldReflect()).toBe(true)

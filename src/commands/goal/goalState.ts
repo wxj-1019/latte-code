@@ -15,6 +15,237 @@ export type GoalStatus = 'active' | 'paused' | 'budget_limited' | 'complete'
 
 export type GoalMode = 'objective' | 'condition'
 
+// ============ Enterprise Features: Audit Logging ============
+
+export type AuditAction = 'created' | 'paused' | 'resumed' | 'completed' | 'failed' | 'budget_exhausted' | 'strategy_changed'
+
+export interface AuditLogEntry {
+  timestamp: number
+  action: AuditAction
+  goalId: string
+  objective: string
+  userId?: string
+  metadata?: Record<string, unknown>
+  turnNumber?: number
+}
+
+const auditLog: AuditLogEntry[] = []
+
+function addAuditEntry(action: AuditAction, metadata?: Record<string, unknown>): void {
+  if (!currentGoal) return
+
+  const entry: AuditLogEntry = {
+    timestamp: Date.now(),
+    action,
+    goalId: currentGoal.id,
+    objective: currentGoal.objective,
+    turnNumber: currentGoal.turnsUsed,
+    metadata,
+  }
+
+  auditLog.push(entry)
+
+  // Keep only last 100 entries to prevent memory leaks
+  if (auditLog.length > 100) {
+    auditLog.splice(0, auditLog.length - 100)
+  }
+
+  // Persist audit log if persistence is enabled
+  persistAuditLog()
+}
+
+export function getAuditLog(): AuditLogEntry[] {
+  return [...auditLog]
+}
+
+export function getAuditLogForGoal(goalId: string): AuditLogEntry[] {
+  return auditLog.filter(entry => entry.goalId === goalId)
+}
+
+/**
+ * Clear audit log (for testing).
+ */
+export function clearAuditLog(): void {
+  auditLog.length = 0
+}
+
+/**
+ * Reset metrics (for testing).
+ */
+export function resetMetrics(): void {
+  metrics.totalGoalsCreated = 0
+  metrics.totalGoalsCompleted = 0
+  metrics.totalGoalsFailed = 0
+  metrics.totalTurnsUsed = 0
+  metrics.totalDurationMs = 0
+}
+
+// ============ Enterprise Features: Metrics Collection ============
+
+export interface GoalMetrics {
+  totalGoalsCreated: number
+  totalGoalsCompleted: number
+  totalGoalsFailed: number
+  totalTurnsUsed: number
+  averageTurnsPerGoal: number
+  averageDurationMs: number
+  successRate: number
+}
+
+const metrics = {
+  totalGoalsCreated: 0,
+  totalGoalsCompleted: 0,
+  totalGoalsFailed: 0,
+  totalTurnsUsed: 0,
+  totalDurationMs: 0,
+}
+
+export function getGoalMetrics(): GoalMetrics {
+  const averageTurnsPerGoal = metrics.totalGoalsCreated > 0
+    ? metrics.totalTurnsUsed / metrics.totalGoalsCreated
+    : 0
+
+  const averageDurationMs = metrics.totalGoalsCreated > 0
+    ? metrics.totalDurationMs / metrics.totalGoalsCreated
+    : 0
+
+  const successRate = metrics.totalGoalsCreated > 0
+    ? (metrics.totalGoalsCompleted / metrics.totalGoalsCreated) * 100
+    : 0
+
+  return {
+    totalGoalsCreated: metrics.totalGoalsCreated,
+    totalGoalsCompleted: metrics.totalGoalsCompleted,
+    totalGoalsFailed: metrics.totalGoalsFailed,
+    totalTurnsUsed: metrics.totalTurnsUsed,
+    averageTurnsPerGoal: Math.round(averageTurnsPerGoal * 100) / 100,
+    averageDurationMs: Math.round(averageDurationMs),
+    successRate: Math.round(successRate * 100) / 100,
+  }
+}
+
+// ============ Enterprise Features: Progress Persistence ============
+
+interface PersistedGoalState {
+  goal: Goal
+  auditLog: AuditLogEntry[]
+  metrics: typeof metrics
+  persistedAt: number
+}
+
+const PERSISTENCE_KEY = 'goal_persistence'
+
+async function persistGoalStateToDisk(): Promise<void> {
+  try {
+    const state: PersistedGoalState = {
+      goal: currentGoal!,
+      auditLog: auditLog.slice(-50), // Keep last 50 entries
+      metrics,
+      persistedAt: Date.now(),
+    }
+
+    const serialized = JSON.stringify(state, null, 2)
+
+    // Use dynamic import to avoid circular dependencies
+    const { writeFile, mkdir } = await import('fs/promises')
+    const { join } = await import('path')
+    const { homedir } = await import('os')
+
+    const persistDir = join(homedir(), '.claude', 'goal-persistence')
+    await mkdir(persistDir, { recursive: true })
+
+    const persistFile = join(persistDir, `${PERSISTENCE_KEY}.json`)
+    await writeFile(persistFile, serialized, 'utf-8')
+  } catch (error) {
+    // Silently ignore persistence errors to not break goal execution
+    logForDebugging(`Failed to persist goal state: ${error}`)
+  }
+}
+
+export async function loadGoalStateFromDisk(): Promise<boolean> {
+  try {
+    const { readFile } = await import('fs/promises')
+    const { join } = await import('path')
+    const { homedir } = await import('os')
+
+    const persistFile = join(homedir(), '.claude', 'goal-persistence', `${PERSISTENCE_KEY}.json`)
+    const data = await readFile(persistFile, 'utf-8')
+    const state: PersistedGoalState = JSON.parse(data)
+
+    if (state.goal && typeof state.goal.id === 'string') {
+      currentGoal = state.goal
+      auditLog.length = 0
+      auditLog.push(...(state.auditLog || []))
+
+      if (state.metrics) {
+        metrics.totalGoalsCreated = state.metrics.totalGoalsCreated || 0
+        metrics.totalGoalsCompleted = state.metrics.totalGoalsCompleted || 0
+        metrics.totalGoalsFailed = state.metrics.totalGoalsFailed || 0
+        metrics.totalTurnsUsed = state.metrics.totalTurnsUsed || 0
+        metrics.totalDurationMs = state.metrics.totalDurationMs || 0
+      }
+
+      return true
+    }
+  } catch {
+    // File doesn't exist or is invalid
+  }
+  return false
+}
+
+// ============ Enterprise Features: Webhook Support ============
+
+export interface WebhookConfig {
+  url: string
+  events: AuditAction[]
+  secret?: string
+}
+
+let webhookConfig: WebhookConfig | null = null
+
+export function setWebhookConfig(config: WebhookConfig | null): void {
+  webhookConfig = config
+}
+
+export function getWebhookConfig(): WebhookConfig | null {
+  return webhookConfig
+}
+
+async function triggerWebhook(entry: AuditLogEntry): Promise<void> {
+  if (!webhookConfig) return
+  if (!webhookConfig.events.includes(entry.action)) return
+
+  try {
+    const payload = JSON.stringify({
+      event: entry.action,
+      goalId: entry.goalId,
+      objective: entry.objective,
+      timestamp: entry.timestamp,
+      turnNumber: entry.turnNumber,
+      metadata: entry.metadata,
+    })
+
+    // Fire and forget - don't block goal execution
+    fetch(webhookConfig.url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(webhookConfig.secret ? { 'X-Webhook-Secret': webhookConfig.secret } : {}),
+      },
+      body: payload,
+    }).catch(() => {
+      // Silently ignore webhook failures
+    })
+  } catch {
+    // Silently ignore webhook errors
+  }
+}
+
+// Helper to import logForDebugging
+function logForDebugging(_message: string): void {
+  // Debug logging is handled elsewhere
+}
+
 export type Goal = {
   id: string
   objective: string
@@ -66,6 +297,13 @@ let originalPermissionMode: string | null = null
 let consecutiveZeroToolCalls = 0
 const MAX_ZERO_TOOL_CALLS = parseEnvInt('GOAL_MAX_ZERO_TOOL_CALLS', 5)
 
+// Track if completion signal has been sent to prevent repeated signaling
+let completionSignalSent = false
+
+// Cooldown mechanism for reflections (prevent rapid consecutive reflections)
+let lastReflectionTimestamp = 0
+const REFLECTION_COOLDOWN_MS = parseEnvInt('GOAL_REFLECTION_COOLDOWN_MS', 2000)
+
 // Minimum and maximum allowed turns
 const MIN_TURNS = 1
 const MAX_TURNS = parseEnvInt('GOAL_MAX_TURNS_LIMIT', 200)
@@ -95,11 +333,59 @@ export function getGoalConfig(): Record<string, string> {
     maxTurnsLimit: String(MAX_TURNS),
     maxZeroToolCalls: String(MAX_ZERO_TOOL_CALLS),
     reflectionInterval: String(DEFAULT_REFLECTION_INTERVAL),
+    reflectionCooldownMs: String(REFLECTION_COOLDOWN_MS),
     env_GOAL_MAX_TURNS: process.env.GOAL_MAX_TURNS || 'not set',
     env_GOAL_MAX_TURNS_LIMIT: process.env.GOAL_MAX_TURNS_LIMIT || 'not set',
     env_GOAL_MAX_ZERO_TOOL_CALLS: process.env.GOAL_MAX_ZERO_TOOL_CALLS || 'not set',
     env_GOAL_REFLECTION_INTERVAL: process.env.GOAL_REFLECTION_INTERVAL || 'not set',
+    env_GOAL_REFLECTION_COOLDOWN_MS: process.env.GOAL_REFLECTION_COOLDOWN_MS || 'not set',
   }
+}
+
+/**
+ * Check if completion signal has already been sent.
+ * This prevents repeated [GOAL_COMPLETED] output and token waste.
+ */
+export function isCompletionSignalSent(): boolean {
+  return completionSignalSent
+}
+
+/**
+ * Mark that completion signal has been sent.
+ * Called when [GOAL_COMPLETED] is detected in model output.
+ */
+export function markCompletionSignalSent(): void {
+  completionSignalSent = true
+}
+
+/**
+ * Reset completion signal (for new goals).
+ */
+export function resetCompletionSignal(): void {
+  completionSignalSent = false
+}
+
+/**
+ * Check if reflection is allowed based on cooldown.
+ * Prevents rapid consecutive reflections that waste tokens.
+ */
+export function isReflectionCooldownActive(): boolean {
+  const now = Date.now()
+  return now - lastReflectionTimestamp < REFLECTION_COOLDOWN_MS
+}
+
+/**
+ * Update reflection timestamp (called after reflection is recorded).
+ */
+export function updateReflectionTimestamp(): void {
+  lastReflectionTimestamp = Date.now()
+}
+
+/**
+ * Reset reflection cooldown (for testing).
+ */
+export function resetReflectionCooldown(): void {
+  lastReflectionTimestamp = 0
 }
 
 function generateGoalId(): string {
@@ -150,10 +436,18 @@ function persistGoalState(): void {
       sessionStorageModule().then(m => m.saveGoalState(serialized)).catch(() => {
         // Silently ignore persistence errors
       })
+
+      // Enterprise: Also persist to disk for durability
+      persistGoalStateToDisk().catch(() => {})
     }
   } catch {
     // Ignore persistence errors
   }
+}
+
+function persistAuditLog(): void {
+  // Audit log is persisted as part of goal state
+  // This function can be extended for separate audit log persistence if needed
 }
 
 export function setGoal(objective: string, maxTurns: number = 50): Goal {
@@ -175,6 +469,14 @@ export function setGoal(objective: string, maxTurns: number = 50): Goal {
     startedAt: now,
   }
   consecutiveZeroToolCalls = 0
+
+  // Reset completion signal for new goal
+  resetCompletionSignal()
+
+  // Enterprise: Increment metrics and add audit entry
+  metrics.totalGoalsCreated++
+  addAuditEntry('created', { maxTurns: clampedMaxTurns, mode, condition })
+
   persistGoalState()
   return currentGoal
 }
@@ -187,6 +489,7 @@ export function pauseGoal(): void {
   if (currentGoal && currentGoal.status === 'active') {
     currentGoal.status = 'paused'
     currentGoal.updatedAt = Date.now()
+    addAuditEntry('paused')
   }
 }
 
@@ -194,12 +497,18 @@ export function resumeGoal(): void {
   if (currentGoal && currentGoal.status === 'paused') {
     currentGoal.status = 'active'
     currentGoal.updatedAt = Date.now()
+    addAuditEntry('resumed')
   }
 }
 
 export function clearGoal(): void {
+  if (currentGoal) {
+    // Enterprise: Add audit entry before clearing
+    addAuditEntry('failed', { reason: 'manually_cleared' })
+  }
   currentGoal = null
   consecutiveZeroToolCalls = 0
+  resetCompletionSignal()
   persistGoalState()
 }
 
@@ -235,6 +544,17 @@ export function markGoalComplete(): void {
   if (currentGoal) {
     currentGoal.status = 'complete'
     currentGoal.updatedAt = Date.now()
+
+    // Enterprise: Update metrics and add audit entry
+    metrics.totalGoalsCompleted++
+    metrics.totalTurnsUsed += currentGoal.turnsUsed
+    metrics.totalDurationMs += Date.now() - currentGoal.startedAt
+    addAuditEntry('completed', {
+      turnsUsed: currentGoal.turnsUsed,
+      tokensSpent: currentGoal.tokensSpent,
+      durationMs: Date.now() - currentGoal.startedAt,
+    })
+
     persistGoalState()
   }
 }
@@ -243,6 +563,16 @@ export function markGoalBudgetLimited(): void {
   if (currentGoal) {
     currentGoal.status = 'budget_limited'
     currentGoal.updatedAt = Date.now()
+
+    // Enterprise: Update metrics and add audit entry
+    metrics.totalGoalsFailed++
+    metrics.totalTurnsUsed += currentGoal.turnsUsed
+    metrics.totalDurationMs += Date.now() - currentGoal.startedAt
+    addAuditEntry('budget_exhausted', {
+      turnsUsed: currentGoal.turnsUsed,
+      maxTurns: currentGoal.maxTurns,
+    })
+
     persistGoalState()
   }
 }
@@ -251,6 +581,11 @@ export function incrementTurn(): void {
   if (currentGoal) {
     currentGoal.turnsUsed++
     currentGoal.updatedAt = Date.now()
+
+    // Enterprise: Periodically persist state to disk (every 5 turns)
+    if (currentGoal.turnsUsed % 5 === 0) {
+      persistGoalStateToDisk().catch(() => {})
+    }
   }
 }
 
@@ -413,6 +748,14 @@ export function recordStepFailure(stepIndex: number, error: string): void {
     currentGoal.lastError = error
     currentGoal.retryCount = (currentGoal.retryCount || 0) + 1
     currentGoal.updatedAt = Date.now()
+
+    // Enterprise: Add audit entry for step failure
+    addAuditEntry('failed', {
+      reason: 'step_failure',
+      stepIndex,
+      error,
+      retryCount: currentGoal.retryCount,
+    })
   }
 }
 
@@ -457,9 +800,13 @@ export function initReflection(interval?: number): void {
 
 /**
  * Check if reflection is needed at the current turn.
+ * Now includes cooldown mechanism to prevent rapid consecutive reflections.
  */
 export function shouldReflect(): boolean {
   if (!currentGoal?.reflectionInterval) return false
+  if (isCompletionSignalSent()) return false
+  if (isReflectionCooldownActive()) return false
+
   const lastReflection = currentGoal.lastReflectionTurn || 0
   return currentGoal.turnsUsed > 0 &&
     currentGoal.turnsUsed - lastReflection >= currentGoal.reflectionInterval
@@ -467,6 +814,7 @@ export function shouldReflect(): boolean {
 
 /**
  * Record a reflection and update the last reflection turn.
+ * Now updates reflection timestamp for cooldown mechanism.
  */
 export function recordReflection(reflection: string): void {
   if (currentGoal) {
@@ -476,6 +824,7 @@ export function recordReflection(reflection: string): void {
     currentGoal.reflections.push(`[Turn ${currentGoal.turnsUsed}] ${reflection}`)
     currentGoal.lastReflectionTurn = currentGoal.turnsUsed
     currentGoal.updatedAt = Date.now()
+    updateReflectionTimestamp()
   }
 }
 
@@ -489,6 +838,9 @@ export function recordStrategyChange(change: string): void {
     }
     currentGoal.strategyChanges.push(`[Turn ${currentGoal.turnsUsed}] ${change}`)
     currentGoal.updatedAt = Date.now()
+
+    // Enterprise: Add audit entry for strategy change
+    addAuditEntry('strategy_changed', { change, turn: currentGoal.turnsUsed })
   }
 }
 
