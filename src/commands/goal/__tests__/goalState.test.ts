@@ -50,6 +50,18 @@ import {
   getWebhookConfig,
   setWebhookConfig,
   resetReflectionCooldown,
+  recordSkillOutcome,
+  isSkillDeprecated,
+  getDeprecatedSkills,
+  setGoalVerification,
+  recordVerificationResult,
+  isVerificationPassed,
+  getVerificationStatus,
+  getGoalVerification,
+  setBudgetConfig,
+  checkBudgetWarning,
+  getBudgetStatus,
+  getBudgetConfig,
 } from '../goalState.js'
 
 describe('goalState', () => {
@@ -663,7 +675,7 @@ describe('goalState', () => {
       setGoal('test')
       clearGoal()
       const auditLog = getAuditLog()
-      const clearEntry = auditLog.find(e => e.action === 'failed' && e.metadata?.reason === 'manually_cleared')
+      const clearEntry = auditLog.find(e => e.action === 'cleared' && e.metadata?.reason === 'manually_cleared')
       expect(clearEntry).toBeDefined()
     })
   })
@@ -725,6 +737,266 @@ describe('goalState', () => {
     it('should return null when no webhook configured', () => {
       setWebhookConfig(null)
       expect(getWebhookConfig()).toBeNull()
+    })
+  })
+
+  describe('skill demotion (PANDO pattern)', () => {
+    it('should record skill outcome', () => {
+      setGoal('test')
+      recordSkillOutcome('test-skill', true)
+      // No crash even if skill doesn't exist yet
+    })
+
+    it('should mark skill as deprecated after consecutive failures', () => {
+      setGoal('test')
+      // First, create a skill via recordSkillOutcome by adding it manually
+      const goal = getGoal()!
+      goal.skillLibrary = [{
+        id: 'skill_1',
+        name: 'bad-skill',
+        description: 'A failing skill',
+        context: 'test',
+        successCount: 0,
+        failureCount: 0,
+        lastUsedTurn: 0,
+        tags: ['test'],
+        successWindow: [],
+        deprecated: false,
+      }]
+
+      // 3 consecutive failures should trigger demotion
+      recordSkillOutcome('bad-skill', false)
+      recordSkillOutcome('bad-skill', false)
+      recordSkillOutcome('bad-skill', false)
+
+      expect(isSkillDeprecated('bad-skill')).toBe(true)
+      const deprecated = getDeprecatedSkills()
+      expect(deprecated).toHaveLength(1)
+      expect(deprecated[0].name).toBe('bad-skill')
+      expect(deprecated[0].reason).toContain('Consecutive')
+    })
+
+    it('should not demote skill with mixed outcomes', () => {
+      setGoal('test')
+      const goal = getGoal()!
+      goal.skillLibrary = [{
+        id: 'skill_2',
+        name: 'mixed-skill',
+        description: 'Mixed results',
+        context: 'test',
+        successCount: 0,
+        failureCount: 0,
+        lastUsedTurn: 0,
+        tags: ['test'],
+        successWindow: [],
+        deprecated: false,
+      }]
+
+      recordSkillOutcome('mixed-skill', true)
+      recordSkillOutcome('mixed-skill', false)
+      recordSkillOutcome('mixed-skill', true)
+
+      expect(isSkillDeprecated('mixed-skill')).toBe(false)
+    })
+
+    it('should return empty deprecated list when none', () => {
+      setGoal('test')
+      expect(getDeprecatedSkills()).toEqual([])
+    })
+  })
+
+  describe('auto-verification', () => {
+    it('should set and get verification config', () => {
+      setGoal('test')
+      setGoalVerification({
+        commands: ['npm test', 'tsc --noEmit'],
+        maxRetries: 2,
+        timeoutMs: 30000,
+      })
+      const config = getGoalVerification()
+      expect(config).not.toBeNull()
+      expect(config!.commands).toEqual(['npm test', 'tsc --noEmit'])
+      expect(config!.maxRetries).toBe(2)
+    })
+
+    it('should record verification results', () => {
+      setGoal('test')
+      setGoalVerification({
+        commands: ['npm test'],
+        maxRetries: 1,
+        timeoutMs: 10000,
+      })
+
+      recordVerificationResult({
+        passed: true,
+        command: 'npm test',
+        exitCode: 0,
+        stdout: 'All tests passed',
+        stderr: '',
+        timestamp: Date.now(),
+      })
+
+      expect(isVerificationPassed()).toBe(true)
+    })
+
+    it('should fail verification when exit code is non-zero', () => {
+      setGoal('test')
+      setGoalVerification({
+        commands: ['npm test'],
+        maxRetries: 1,
+        timeoutMs: 10000,
+      })
+
+      recordVerificationResult({
+        passed: false,
+        command: 'npm test',
+        exitCode: 1,
+        stdout: '',
+        stderr: 'Test failed',
+        timestamp: Date.now(),
+      })
+
+      expect(isVerificationPassed()).toBe(false)
+    })
+
+    it('should pass when no verification configured', () => {
+      setGoal('test')
+      expect(isVerificationPassed()).toBe(true)
+    })
+
+    it('should return verification status', () => {
+      setGoal('test')
+      expect(getVerificationStatus()).toBeNull()
+
+      setGoalVerification({
+        commands: ['npm test'],
+        maxRetries: 1,
+        timeoutMs: 10000,
+      })
+      expect(getVerificationStatus()).toContain('configured but not yet run')
+
+      recordVerificationResult({
+        passed: true,
+        command: 'npm test',
+        exitCode: 0,
+        stdout: '',
+        stderr: '',
+        timestamp: Date.now(),
+      })
+      expect(getVerificationStatus()).toContain('all 1 commands passed')
+    })
+  })
+
+  describe('token budget (cost guardrails)', () => {
+    it('should set and get budget config', () => {
+      setGoal('test')
+      setBudgetConfig({
+        maxTokensTotal: 100000,
+        maxCostUSD: 5.0,
+        warningThresholds: { tokens: [60, 80], cost: [50, 80] },
+      })
+      const config = getBudgetConfig()
+      expect(config).not.toBeNull()
+      expect(config!.maxTokensTotal).toBe(100000)
+      expect(config!.maxCostUSD).toBe(5.0)
+    })
+
+    it('should return empty warnings when under threshold', () => {
+      setGoal('test')
+      setBudgetConfig({
+        maxTokensTotal: 100000,
+        warningThresholds: { tokens: [60, 80], cost: [] },
+      })
+      addTokensSpent(1000) // 1% usage
+      expect(checkBudgetWarning()).toEqual([])
+    })
+
+    it('should return warning when threshold crossed', () => {
+      setGoal('test')
+      setBudgetConfig({
+        maxTokensTotal: 10000,
+        warningThresholds: { tokens: [60, 80], cost: [] },
+      })
+      addTokensSpent(7000) // 70% usage
+      const warnings = checkBudgetWarning()
+      expect(warnings.length).toBeGreaterThan(0)
+      expect(warnings[0]).toContain('70%')
+    })
+
+    it('should return budget status', () => {
+      setGoal('test')
+      setBudgetConfig({
+        maxTokensTotal: 100000,
+        maxCostUSD: 5.0,
+        warningThresholds: { tokens: [], cost: [] },
+      })
+      addTokensSpent(5000)
+      const status = getBudgetStatus()
+      expect(status).toContain('5.0k')
+      expect(status).toContain('100.0k')
+      expect(status).toContain('Max: $5')
+    })
+
+    it('should report highest crossed threshold', () => {
+      setGoal('test')
+      setBudgetConfig({
+        maxTokensTotal: 10000,
+        warningThresholds: { tokens: [60, 80], cost: [] },
+      })
+      addTokensSpent(8500) // 85% usage - crosses both 60 and 80
+      const warnings = checkBudgetWarning()
+      expect(warnings.length).toBeGreaterThan(0)
+      expect(warnings[0]).toContain('85%')
+    })
+
+    it('should return null when no budget configured', () => {
+      setGoal('test')
+      expect(getBudgetStatus()).toBeNull()
+      expect(checkBudgetWarning()).toEqual([])
+    })
+  })
+
+  describe('deserializeGoal with new fields', () => {
+    it('should restore verification config', () => {
+      setGoal('test')
+      setGoalVerification({ commands: ['npm test'], maxRetries: 1, timeoutMs: 10000 })
+      const serialized = serializeGoal()!
+      clearGoal()
+      expect(getGoal()).toBeNull()
+
+      deserializeGoal(serialized)
+      const verification = getGoalVerification()
+      expect(verification).not.toBeNull()
+      expect(verification!.commands).toEqual(['npm test'])
+    })
+
+    it('should restore budget config', () => {
+      setGoal('test')
+      setBudgetConfig({ maxTokensTotal: 50000, warningThresholds: { tokens: [80], cost: [] } })
+      const serialized = serializeGoal()!
+      clearGoal()
+
+      deserializeGoal(serialized)
+      const budget = getBudgetConfig()
+      expect(budget).not.toBeNull()
+      expect(budget!.maxTokensTotal).toBe(50000)
+    })
+  })
+
+  describe('formatGoalStatus with new features', () => {
+    it('should include verification status in format', () => {
+      setGoal('test', 10)
+      setGoalVerification({ commands: ['npm test'], maxRetries: 1, timeoutMs: 10000 })
+      const status = formatGoalStatus()
+      expect(status).toContain('Verification')
+    })
+
+    it('should include budget status in format', () => {
+      setGoal('test', 10)
+      setBudgetConfig({ maxTokensTotal: 100000, warningThresholds: { tokens: [], cost: [] } })
+      addTokensSpent(5000)
+      const status = formatGoalStatus()
+      expect(status).toContain('Tokens')
     })
   })
 })

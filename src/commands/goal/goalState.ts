@@ -11,13 +11,34 @@
 // biome-ignore lint/correctness/useExhaustiveDependencies: dynamic import to avoid circular deps
 const sessionStorageModule = () => import('../../utils/sessionStorage.js')
 
+// Shared lazy-loaded filesystem modules (avoids repeated dynamic imports)
+const fsModules = {
+  fs: null as typeof import('fs/promises') | null,
+  path: null as typeof import('path') | null,
+  os: null as typeof import('os') | null,
+}
+
+async function getFsModules() {
+  if (!fsModules.fs) {
+    const [fs, path, os] = await Promise.all([
+      import('fs/promises'),
+      import('path'),
+      import('os'),
+    ])
+    fsModules.fs = fs
+    fsModules.path = path
+    fsModules.os = os
+  }
+  return fsModules as { fs: typeof import('fs/promises'); path: typeof import('path'); os: typeof import('os') }
+}
+
 export type GoalStatus = 'active' | 'paused' | 'budget_limited' | 'complete'
 
 export type GoalMode = 'objective' | 'condition'
 
 // ============ Enterprise Features: Audit Logging ============
 
-export type AuditAction = 'created' | 'paused' | 'resumed' | 'completed' | 'failed' | 'budget_exhausted' | 'strategy_changed'
+export type AuditAction = 'created' | 'paused' | 'resumed' | 'completed' | 'failed' | 'cleared' | 'budget_exhausted' | 'strategy_changed'
 
 export interface AuditLogEntry {
   timestamp: number
@@ -50,8 +71,8 @@ function addAuditEntry(action: AuditAction, metadata?: Record<string, unknown>):
     auditLog.splice(0, auditLog.length - 100)
   }
 
-  // Persist audit log if persistence is enabled
-  persistAuditLog()
+  // Trigger webhook for matching events
+  triggerWebhook(entry)
 }
 
 export function getAuditLog(): AuditLogEntry[] {
@@ -144,18 +165,14 @@ async function persistGoalStateToDisk(): Promise<void> {
       persistedAt: Date.now(),
     }
 
-    const serialized = JSON.stringify(state, null, 2)
+    const serialized = JSON.stringify(state)
+    const { fs, path, os } = await getFsModules()
 
-    // Use dynamic import to avoid circular dependencies
-    const { writeFile, mkdir } = await import('fs/promises')
-    const { join } = await import('path')
-    const { homedir } = await import('os')
+    const persistDir = path.join(os.homedir(), '.claude', 'goal-persistence')
+    await fs.mkdir(persistDir, { recursive: true })
 
-    const persistDir = join(homedir(), '.claude', 'goal-persistence')
-    await mkdir(persistDir, { recursive: true })
-
-    const persistFile = join(persistDir, `${PERSISTENCE_KEY}.json`)
-    await writeFile(persistFile, serialized, 'utf-8')
+    const persistFile = path.join(persistDir, `${PERSISTENCE_KEY}.json`)
+    await fs.writeFile(persistFile, serialized, 'utf-8')
   } catch (error) {
     // Silently ignore persistence errors to not break goal execution
     logForDebugging(`Failed to persist goal state: ${error}`)
@@ -164,16 +181,19 @@ async function persistGoalStateToDisk(): Promise<void> {
 
 export async function loadGoalStateFromDisk(): Promise<boolean> {
   try {
-    const { readFile } = await import('fs/promises')
-    const { join } = await import('path')
-    const { homedir } = await import('os')
+    const { fs, path, os } = await getFsModules()
 
-    const persistFile = join(homedir(), '.claude', 'goal-persistence', `${PERSISTENCE_KEY}.json`)
-    const data = await readFile(persistFile, 'utf-8')
+    const persistFile = path.join(os.homedir(), '.claude', 'goal-persistence', `${PERSISTENCE_KEY}.json`)
+    const data = await fs.readFile(persistFile, 'utf-8')
     const state: PersistedGoalState = JSON.parse(data)
 
-    if (state.goal && typeof state.goal.id === 'string') {
-      currentGoal = state.goal
+    if (state.goal && typeof state.goal.id === 'string' && typeof state.goal.objective === 'string') {
+      // Validate required fields to prevent corrupted data from breaking the system
+      const g = state.goal
+      if (!['active', 'paused', 'budget_limited', 'complete'].includes(g.status)) return false
+      if (typeof g.maxTurns !== 'number' || !Number.isFinite(g.maxTurns)) return false
+
+      currentGoal = g
       auditLog.length = 0
       auditLog.push(...(state.auditLog || []))
 
@@ -225,7 +245,9 @@ async function triggerWebhook(entry: AuditLogEntry): Promise<void> {
       metadata: entry.metadata,
     })
 
-    // Fire and forget - don't block goal execution
+    // Fire and forget with timeout - don't block goal execution
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 5000)
     fetch(webhookConfig.url, {
       method: 'POST',
       headers: {
@@ -233,17 +255,20 @@ async function triggerWebhook(entry: AuditLogEntry): Promise<void> {
         ...(webhookConfig.secret ? { 'X-Webhook-Secret': webhookConfig.secret } : {}),
       },
       body: payload,
+      signal: controller.signal,
     }).catch(() => {
       // Silently ignore webhook failures
-    })
+    }).finally(() => clearTimeout(timeout))
   } catch {
     // Silently ignore webhook errors
   }
 }
 
-// Helper to import logForDebugging
-function logForDebugging(_message: string): void {
-  // Debug logging is handled elsewhere
+// Helper for debug logging (outputs to stderr in debug mode)
+function logForDebugging(message: string): void {
+  if (process.env.DEBUG || process.env.GOAL_DEBUG) {
+    process.stderr.write(`[goal] ${message}\n`)
+  }
 }
 
 export type Goal = {
@@ -277,6 +302,19 @@ export type Goal = {
   compactCount?: number // Number of times context was compacted
   lastCompactTurn?: number // Last turn when context was compacted
   compactSummaries?: string[] // Summaries from compactions
+  // Episodic memory (Reflexion pattern)
+  episodicMemory?: EpisodicMemoryEntry[]
+  // Adaptive re-planning
+  replanCount?: number
+  lastReplanTurn?: number
+  replanTriggers?: string[] // 记录触发重规划的原因
+  // Skill library (Voyager pattern)
+  skillLibrary?: SkillEntry[]
+  // Auto-verification
+  verification?: VerificationConfig
+  verificationResults?: VerificationResult[]
+  // Token budget (cost guardrails)
+  budgetConfig?: BudgetConfig
 }
 
 export type Subtask = {
@@ -285,6 +323,72 @@ export type Subtask = {
   status: 'pending' | 'in_progress' | 'completed' | 'failed'
   dependencies?: number[] //依赖的子任务索引
   result?: string //执行结果
+  priority?: number // 优先级 (1=高, 2=中, 3=低)
+  canParallel?: boolean // 是否可以与其他任务并行执行
+  startedAt?: number // 开始执行时间
+  completedAt?: number // 完成时间
+}
+
+// ============ Episodic Memory (Reflexion Pattern) ============
+
+export type EpisodeOutcome = 'success' | 'failure' | 'partial'
+
+export interface EpisodicMemoryEntry {
+  turn: number
+  stepIndex?: number
+  action: string        // 尝试了什么
+  outcome: EpisodeOutcome
+  error?: string        // 失败时的错误信息
+  reflection: string    // 为什么失败/成功
+  lesson: string        // 可复用的经验教训
+  timestamp: number
+  importanceScore: number  // 基于 error severity + retryCount 计算（1-10）
+}
+
+// ============ Skill Library (Voyager Pattern) ============
+
+export interface SkillEntry {
+  id: string
+  name: string
+  description: string
+  code?: string         // 相关代码片段
+  context: string       // 使用场景
+  successCount: number
+  failureCount: number
+  lastUsedTurn: number
+  tags: string[]
+  successWindow: boolean[]  // 最近 10 次使用记录（用于淘汰判定）
+  deprecated: boolean
+  deprecatedReason?: string
+}
+
+// ============ Auto-Verification ============
+
+export interface VerificationConfig {
+  commands: string[]    // 如 ["npm test", "tsc --noEmit"]
+  maxRetries: number
+  timeoutMs: number
+}
+
+export interface VerificationResult {
+  passed: boolean
+  command: string
+  exitCode: number
+  stdout: string
+  stderr: string
+  timestamp: number
+}
+
+// ============ Token Budget (Cost Guardrails) ============
+
+export interface BudgetConfig {
+  maxTokensTotal?: number      // 累计 token 上限
+  maxTokensPerTurn?: number    // 单轮上限
+  maxCostUSD?: number          // 基于模型定价的估算成本上限
+  warningThresholds: {
+    tokens: number[]           // token 使用百分比告警阈值
+    cost: number[]             // 成本百分比告警阈值
+  }
 }
 
 // Session-scoped goal state
@@ -311,7 +415,7 @@ const MAX_TURNS = parseEnvInt('GOAL_MAX_TURNS_LIMIT', 200)
 // Default reflection interval (configurable via env)
 const DEFAULT_REFLECTION_INTERVAL = parseEnvInt('GOAL_REFLECTION_INTERVAL', 5)
 
-// Resource warning thresholds
+// Resource warning thresholds (used in goalPrompts.ts via getGoalConfig)
 const RESOURCE_WARNING_60 = parseEnvInt('GOAL_RESOURCE_WARNING_60', 60)
 const RESOURCE_WARNING_80 = parseEnvInt('GOAL_RESOURCE_WARNING_80', 80)
 
@@ -334,6 +438,8 @@ export function getGoalConfig(): Record<string, string> {
     maxZeroToolCalls: String(MAX_ZERO_TOOL_CALLS),
     reflectionInterval: String(DEFAULT_REFLECTION_INTERVAL),
     reflectionCooldownMs: String(REFLECTION_COOLDOWN_MS),
+    resourceWarning60: String(RESOURCE_WARNING_60),
+    resourceWarning80: String(RESOURCE_WARNING_80),
     env_GOAL_MAX_TURNS: process.env.GOAL_MAX_TURNS || 'not set',
     env_GOAL_MAX_TURNS_LIMIT: process.env.GOAL_MAX_TURNS_LIMIT || 'not set',
     env_GOAL_MAX_ZERO_TOOL_CALLS: process.env.GOAL_MAX_ZERO_TOOL_CALLS || 'not set',
@@ -392,6 +498,18 @@ function generateGoalId(): string {
   return `goal_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
 }
 
+function isVerificationConfig(val: unknown): val is VerificationConfig {
+  if (!val || typeof val !== 'object') return false
+  const v = val as Record<string, unknown>
+  return Array.isArray(v.commands) && typeof v.maxRetries === 'number' && typeof v.timeoutMs === 'number'
+}
+
+function isBudgetConfig(val: unknown): val is BudgetConfig {
+  if (!val || typeof val !== 'object') return false
+  const v = val as Record<string, unknown>
+  return v.warningThresholds !== undefined && typeof v.warningThresholds === 'object'
+}
+
 function clampMaxTurns(maxTurns: number): number {
   if (!Number.isFinite(maxTurns)) {
     return 50 // sensible default for autonomous execution
@@ -443,11 +561,6 @@ function persistGoalState(): void {
   } catch {
     // Ignore persistence errors
   }
-}
-
-function persistAuditLog(): void {
-  // Audit log is persisted as part of goal state
-  // This function can be extended for separate audit log persistence if needed
 }
 
 export function setGoal(objective: string, maxTurns: number = 50): Goal {
@@ -503,8 +616,7 @@ export function resumeGoal(): void {
 
 export function clearGoal(): void {
   if (currentGoal) {
-    // Enterprise: Add audit entry before clearing
-    addAuditEntry('failed', { reason: 'manually_cleared' })
+    addAuditEntry('cleared', { reason: 'manually_cleared' })
   }
   currentGoal = null
   consecutiveZeroToolCalls = 0
@@ -520,7 +632,7 @@ export function setOriginalPermissionMode(mode: string | null): void {
   originalPermissionMode = mode
 }
 
-type SetAppStateFn = (updater: (prev: any) => any) => void
+type SetAppStateFn = (updater: (prev: { toolPermissionContext: { mode: string } }) => { toolPermissionContext: { mode: string } }) => void
 
 /**
  * Restore the original permission mode that was active before the goal was set.
@@ -529,7 +641,7 @@ type SetAppStateFn = (updater: (prev: any) => any) => void
 export function restoreOriginalPermissionMode(setAppState: SetAppStateFn): void {
   const originalMode = getOriginalPermissionMode()
   if (originalMode) {
-    setAppState((prev: any) => ({
+    setAppState(prev => ({
       ...prev,
       toolPermissionContext: {
         ...prev.toolPermissionContext,
@@ -660,7 +772,13 @@ export function formatGoalStatus(): string {
   const reasonStr = evaluatorReason ? ` | "${evaluatorReason}"` : ''
   const modeStr = mode === 'condition' && condition ? `\n  Condition: ${condition}` : ''
 
-  return `[${statusEmoji}] Goal: ${objective}${modeStr}\n  Status: ${status} | ${turnsUsed}/${maxTurns} turns${progressBar} | ${duration}${tokenStr}${reasonStr}`
+  // Verification status
+  const verificationStr = getVerificationStatus() ? `\n  ${getVerificationStatus()}` : ''
+
+  // Budget status
+  const budgetStr = getBudgetStatus() ? `\n  ${getBudgetStatus()}` : ''
+
+  return `[${statusEmoji}] Goal: ${objective}${modeStr}\n  Status: ${status} | ${turnsUsed}/${maxTurns} turns${progressBar} | ${duration}${tokenStr}${reasonStr}${verificationStr}${budgetStr}`
 }
 
 export function updateEvaluatorReason(reason: string): void {
@@ -871,20 +989,19 @@ export function setSubtasks(descriptions: string[]): void {
 export function getNextSubtask(): Subtask | null {
   if (!currentGoal?.subtasks) return null
 
-  for (const subtask of currentGoal.subtasks) {
-    if (subtask.status !== 'pending') continue
+  const ready = currentGoal.subtasks.filter(subtask => {
+    if (subtask.status !== 'pending') return false
+    if (!subtask.dependencies) return true
+    return subtask.dependencies.every(
+      depIndex => currentGoal!.subtasks![depIndex]?.status === 'completed'
+    )
+  })
 
-    // Check if all dependencies are completed
-    if (subtask.dependencies) {
-      const allDepsCompleted = subtask.dependencies.every(
-        depIndex => currentGoal!.subtasks![depIndex]?.status === 'completed'
-      )
-      if (!allDepsCompleted) continue
-    }
+  if (!ready.length) return null
 
-    return subtask
-  }
-  return null
+  // Sort by priority (lower number = higher priority)
+  ready.sort((a, b) => (a.priority ?? 2) - (b.priority ?? 2))
+  return ready[0]
 }
 
 /**
@@ -896,9 +1013,16 @@ export function updateSubtaskStatus(
   result?: string
 ): void {
   if (currentGoal?.subtasks?.[subtaskIndex]) {
-    currentGoal.subtasks[subtaskIndex].status = status
+    const subtask = currentGoal.subtasks[subtaskIndex]
+    subtask.status = status
     if (result) {
-      currentGoal.subtasks[subtaskIndex].result = result
+      subtask.result = result
+    }
+    if (status === 'in_progress' && !subtask.startedAt) {
+      subtask.startedAt = Date.now()
+    }
+    if (status === 'completed' || status === 'failed') {
+      subtask.completedAt = Date.now()
     }
     currentGoal.updatedAt = Date.now()
   }
@@ -920,6 +1044,343 @@ export function getSubtaskProgress(): string | null {
   return currentGoal.subtasks.map((st, i) => {
     return `${statusEmoji[st.status]} ${st.description}`
   }).join('\n')
+}
+
+// ============ Episodic Memory (Reflexion Pattern) ============
+
+const MAX_EPISODES = 20
+
+/**
+ * Calculate importance score for an episodic memory entry.
+ * Higher score = more important to keep.
+ * Factors: outcome severity, retry count, error presence.
+ */
+function calculateImportanceScore(entry: { outcome: EpisodeOutcome; error?: string; retryCount?: number }): number {
+  let score = 5 // baseline
+
+  // Failures are more important to remember than successes
+  if (entry.outcome === 'failure') score += 3
+  else if (entry.outcome === 'partial') score += 1
+
+  // Errors with specific messages are more informative
+  if (entry.error && entry.error.length > 10) score += 1
+
+  // Retries indicate a persistent problem worth remembering
+  if ((entry.retryCount ?? 0) >= 3) score += 1
+
+  return Math.min(10, Math.max(1, score))
+}
+
+/**
+ * Record an episode (action + outcome + lesson) for future reference.
+ * Based on Reflexion: Language Agents with Verbal Reinforcement Learning.
+ *
+ * Now includes importance-based eviction: when the memory is full,
+ * the entry with the lowest importanceScore is evicted instead of the oldest.
+ */
+export function recordEpisode(entry: Omit<EpisodicMemoryEntry, 'timestamp' | 'importanceScore'>): void {
+  if (!currentGoal) return
+  if (!currentGoal.episodicMemory) currentGoal.episodicMemory = []
+
+  const importanceScore = calculateImportanceScore(entry)
+
+  currentGoal.episodicMemory.push({
+    ...entry,
+    timestamp: Date.now(),
+    importanceScore,
+  })
+
+  // Smart eviction: remove lowest importance entry when over limit
+  if (currentGoal.episodicMemory.length > MAX_EPISODES) {
+    // Find the entry with the lowest importance score (prefer evicting low-value memories)
+    let minIdx = 0
+    let minScore = currentGoal.episodicMemory[0].importanceScore
+    for (let i = 1; i < currentGoal.episodicMemory.length; i++) {
+      const s = currentGoal.episodicMemory[i].importanceScore
+      if (s < minScore) {
+        minScore = s
+        minIdx = i
+      }
+    }
+    currentGoal.episodicMemory.splice(minIdx, 1)
+  }
+
+  currentGoal.updatedAt = Date.now()
+}
+
+/**
+ * Get relevant lessons from past failures to inject into prompts.
+ * Prioritizes by importanceScore (high-importance lessons first),
+ * then by recency as tiebreaker.
+ */
+export function getRelevantLessons(maxLessons: number = 3): string | null {
+  if (!currentGoal?.episodicMemory?.length) return null
+
+  const failures = currentGoal.episodicMemory.filter(e => e.outcome === 'failure')
+  if (!failures.length) return null
+
+  // Sort by importanceScore desc, then by turn desc (most recent first)
+  const sorted = [...failures].sort((a, b) => {
+    if (a.importanceScore !== b.importanceScore) return b.importanceScore - a.importanceScore
+    return b.turn - a.turn
+  })
+
+  return sorted.slice(0, maxLessons).map(e =>
+    `- [Turn ${e.turn}] "${e.action}" failed: ${e.error || 'unknown error'}. Lesson: ${e.lesson}`
+  ).join('\n')
+}
+
+/**
+ * Get a summary of episodic memory for status display.
+ */
+export function getEpisodicSummary(): string | null {
+  if (!currentGoal?.episodicMemory?.length) return null
+
+  const total = currentGoal.episodicMemory.length
+  const successes = currentGoal.episodicMemory.filter(e => e.outcome === 'success').length
+  const failures = currentGoal.episodicMemory.filter(e => e.outcome === 'failure').length
+
+  return `Episodes: ${total} total (${successes} success, ${failures} failed)`
+}
+
+// ============ Adaptive Re-Planning ============
+
+const REPLAN_TURN_THRESHOLD = 0.6  // >60% turns used
+const REPLAN_PROGRESS_THRESHOLD = 0.3  // <30% steps done
+const REPLAN_FAILED_STEPS_THRESHOLD = 2  // 2+ steps failed
+
+/**
+ * Check if the current plan needs to be regenerated.
+ * Triggers re-planning when:
+ * 1. >60% turns used but <30% steps completed
+ * 2. 2+ steps have failed
+ * 3. Last error has been retrying for 3+ times
+ */
+export function shouldReplan(): boolean {
+  if (!currentGoal) return false
+  if (isCompletionSignalSent()) return false
+
+  const total = currentGoal.executionPlan?.length || 0
+  const completed = currentGoal.completedSteps?.length || 0
+  const failed = currentGoal.failedSteps?.length || 0
+
+  // Already replanned recently (within 5 turns)
+  if (currentGoal.lastReplanTurn && currentGoal.turnsUsed - currentGoal.lastReplanTurn < 5) {
+    return false
+  }
+
+  // Condition 1: Poor progress relative to turns used
+  if (total > 0) {
+    const turnRatio = currentGoal.turnsUsed / currentGoal.maxTurns
+    const progressRatio = completed / total
+    if (turnRatio > REPLAN_TURN_THRESHOLD && progressRatio < REPLAN_PROGRESS_THRESHOLD) {
+      return true
+    }
+  }
+
+  // Condition 2: Too many failed steps
+  if (failed >= REPLAN_FAILED_STEPS_THRESHOLD) {
+    return true
+  }
+
+  // Condition 3: Persistent retry failure
+  if ((currentGoal.retryCount || 0) >= 3) {
+    return true
+  }
+
+  return false
+}
+
+/**
+ * Record a re-planning event with the reason.
+ */
+export function recordReplan(reason: string): void {
+  if (!currentGoal) return
+  currentGoal.replanCount = (currentGoal.replanCount || 0) + 1
+  currentGoal.lastReplanTurn = currentGoal.turnsUsed
+  if (!currentGoal.replanTriggers) currentGoal.replanTriggers = []
+  currentGoal.replanTriggers.push(`[Turn ${currentGoal.turnsUsed}] ${reason}`)
+  currentGoal.updatedAt = Date.now()
+  addAuditEntry('strategy_changed', { reason: 'replan', trigger: reason })
+}
+
+/**
+ * Get re-planning prompt to inject into continuation.
+ */
+export function getReplanPrompt(): string | null {
+  if (!shouldReplan()) return null
+
+  const failedSteps = currentGoal?.failedSteps || []
+  const failedDescriptions = currentGoal?.executionPlan
+    ? failedSteps.map(i => currentGoal!.executionPlan![i]).filter(Boolean)
+    : []
+
+  const lessonsBlock = getRelevantLessons(3)
+  const lessonsSection = lessonsBlock ? `\nLessons from past failures:\n${lessonsBlock}` : ''
+
+  return `[RE-PLANNING REQUIRED] Current plan is not working effectively.
+Failed steps: ${failedDescriptions.length > 0 ? failedDescriptions.join(', ') : 'unknown'}
+${lessonsSection}
+
+Generate a NEW, shorter plan:
+- Skip steps that have failed 2+ times
+- Focus only on the most critical remaining items
+- Consider alternative approaches based on lessons learned
+- If the goal seems unachievable, output [GOAL_COMPLETED] with a summary`
+}
+
+// ============ Skill Library (Voyager Pattern) ============
+
+const MAX_SKILLS = 30
+
+function generateSkillId(): string {
+  return `skill_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
+}
+
+/**
+ * Record a reusable skill/pattern learned during goal execution.
+ * Based on Voyager's skill library concept.
+ * Now initializes successWindow and deprecated fields for demotion support.
+ */
+export function recordSkill(skill: Omit<SkillEntry, 'id' | 'successCount' | 'failureCount' | 'lastUsedTurn' | 'successWindow' | 'deprecated'>): void {
+  if (!currentGoal) return
+  if (!currentGoal.skillLibrary) currentGoal.skillLibrary = []
+
+  // Check if similar skill already exists
+  const existing = currentGoal.skillLibrary.find(s => s.name === skill.name)
+  if (existing) {
+    existing.successCount++
+    existing.lastUsedTurn = currentGoal.turnsUsed
+    existing.successWindow.push(true)
+    if (existing.successWindow.length > 10) existing.successWindow.shift()
+    if (skill.code) existing.code = skill.code
+    return
+  }
+
+  currentGoal.skillLibrary.push({
+    ...skill,
+    id: generateSkillId(),
+    successCount: 1,
+    failureCount: 0,
+    lastUsedTurn: currentGoal.turnsUsed,
+    successWindow: [true],
+    deprecated: false,
+  })
+
+  // Keep library bounded — evict deprecated first, then oldest
+  if (currentGoal.skillLibrary.length > MAX_SKILLS) {
+    const deprecated = currentGoal.skillLibrary.filter(s => s.deprecated)
+    if (deprecated.length > 0) {
+      // Remove deprecated skills first
+      const deprecatedIds = new Set(deprecated.map(s => s.id))
+      currentGoal.skillLibrary = currentGoal.skillLibrary.filter(s => !deprecatedIds.has(s.id))
+    }
+    // If still over limit, remove oldest by lastUsedTurn
+    if (currentGoal.skillLibrary.length > MAX_SKILLS) {
+      currentGoal.skillLibrary.sort((a, b) => b.lastUsedTurn - a.lastUsedTurn)
+      currentGoal.skillLibrary = currentGoal.skillLibrary.slice(0, MAX_SKILLS)
+    }
+  }
+
+  currentGoal.updatedAt = Date.now()
+}
+
+/**
+ * Get skills relevant to the current context.
+ * Returns skills matching given tags, sorted by success rate.
+ */
+export function getRelevantSkills(context: string, maxSkills: number = 3): string | null {
+  if (!currentGoal?.skillLibrary?.length) return null
+
+  const contextLower = context.toLowerCase()
+  const relevant = currentGoal.skillLibrary
+    .filter(s => {
+      // Exclude deprecated skills
+      if (s.deprecated) return false
+      // Match by tags or context keywords
+      const tagMatch = s.tags.some(t => contextLower.includes(t.toLowerCase()))
+      const contextMatch = contextLower.includes(s.context.toLowerCase()) ||
+        s.context.toLowerCase().includes(contextLower)
+      return tagMatch || contextMatch
+    })
+    .sort((a, b) => {
+      // Sort by success rate, then by recency
+      const totalA = a.successCount + a.failureCount
+      const totalB = b.successCount + b.failureCount
+      const rateA = totalA > 0 ? a.successCount / totalA : 1
+      const rateB = totalB > 0 ? b.successCount / totalB : 1
+      if (rateA !== rateB) return rateB - rateA
+      return b.lastUsedTurn - a.lastUsedTurn
+    })
+    .slice(0, maxSkills)
+
+  if (!relevant.length) return null
+
+  return relevant.map(s => {
+    const total = s.successCount + s.failureCount
+    const successRate = total > 0 ? Math.round((s.successCount / total) * 100) : 100
+    return `- ${s.name}: ${s.description} (used ${s.successCount}x, ${successRate}% success)`
+  }).join('\n')
+}
+
+/**
+ * Get skill library summary for status display.
+ */
+export function getSkillLibrarySummary(): string | null {
+  if (!currentGoal?.skillLibrary?.length) return null
+  return `Skills: ${currentGoal.skillLibrary.length} learned`
+}
+
+// ============ Enhanced Subtask with DAG & Parallel ============
+
+/**
+ * Set subtasks with DAG dependencies and priority support.
+ * Unlike setSubtasks(), this supports arbitrary dependency graphs.
+ */
+export function setSubtasksFromGraph(tasks: {
+  description: string
+  dependencies?: number[]
+  priority?: number
+  canParallel?: boolean
+}[]): void {
+  if (currentGoal) {
+    currentGoal.subtasks = tasks.map((t, i) => ({
+      id: generateSubtaskId(),
+      description: t.description,
+      status: 'pending' as const,
+      dependencies: t.dependencies,
+      priority: t.priority ?? 2,
+      canParallel: t.canParallel ?? false,
+    }))
+    currentGoal.updatedAt = Date.now()
+  }
+}
+
+/**
+ * Get all subtasks that are ready to execute (dependencies met).
+ * Supports parallel execution of independent tasks.
+ */
+export function getReadySubtasks(): Subtask[] {
+  if (!currentGoal?.subtasks) return []
+
+  return currentGoal.subtasks.filter(subtask => {
+    if (subtask.status !== 'pending') return false
+    if (!subtask.dependencies) return true
+    return subtask.dependencies.every(
+      depIndex => currentGoal!.subtasks![depIndex]?.status === 'completed'
+    )
+  }).sort((a, b) => (a.priority ?? 2) - (b.priority ?? 2))
+}
+
+/**
+ * Get parallel execution hint for the prompt.
+ */
+export function getParallelHint(): string | null {
+  const ready = getReadySubtasks()
+  const parallelReady = ready.filter(s => s.canParallel)
+  if (parallelReady.length < 2) return null
+
+  return `Parallelizable tasks available: ${parallelReady.map(s => s.description).join(', ')}`
 }
 
 // ============ Context Compression ============
@@ -974,6 +1435,16 @@ export function getGoalSummary(): string {
   return parts.join(' | ')
 }
 
+const REFLECTION_PROMPT_TEMPLATE = `<reflection>SELF-REFLECTION REQUIRED (Turn {turn}):
+
+Evaluate your progress and strategy:
+1. Progress: {completed}/{total} steps completed, {failed} failed
+2. Are you making meaningful progress toward the goal?
+3. Is your current approach effective? Should you change strategy?
+4. Are there any blockers you need to address differently?
+
+If you need to change strategy, explain what and why. Then proceed with the adjusted approach.</reflection>`
+
 /**
  * Get the reflection prompt to inject into continuation.
  */
@@ -984,15 +1455,11 @@ export function getReflectionPrompt(): string | null {
   const failedCount = currentGoal?.failedSteps?.length || 0
   const totalSteps = currentGoal?.executionPlan?.length || 0
 
-  return `<reflection>SELF-REFLECTION REQUIRED (Turn ${currentGoal?.turnsUsed}):
-
-Evaluate your progress and strategy:
-1. Progress: ${completedCount}/${totalSteps} steps completed, ${failedCount} failed
-2. Are you making meaningful progress toward the goal?
-3. Is your current approach effective? Should you change strategy?
-4. Are there any blockers you need to address differently?
-
-If you need to change strategy, explain what and why. Then proceed with the adjusted approach.</reflection>`
+  return REFLECTION_PROMPT_TEMPLATE
+    .replace('{turn}', String(currentGoal?.turnsUsed))
+    .replace('{completed}', String(completedCount))
+    .replace('{total}', String(totalSteps))
+    .replace('{failed}', String(failedCount))
 }
 
 export function getGoalDurationMs(): number {
@@ -1058,6 +1525,19 @@ export function deserializeGoal(serialized: string): boolean {
       evaluatorReason: undefined,
       tokensSpent: 0,
       startedAt: Date.now(), // Reset timer on resume
+      // Restore optional fields if present
+      executionPlan: Array.isArray(p.executionPlan) ? p.executionPlan : undefined,
+      completedSteps: Array.isArray(p.completedSteps) ? p.completedSteps : undefined,
+      failedSteps: Array.isArray(p.failedSteps) ? p.failedSteps : undefined,
+      subtasks: Array.isArray(p.subtasks) ? p.subtasks : undefined,
+      episodicMemory: Array.isArray(p.episodicMemory) ? p.episodicMemory : undefined,
+      skillLibrary: Array.isArray(p.skillLibrary) ? p.skillLibrary : undefined,
+      replanCount: typeof p.replanCount === 'number' ? p.replanCount : undefined,
+      reflections: Array.isArray(p.reflections) ? p.reflections : undefined,
+      strategyChanges: Array.isArray(p.strategyChanges) ? p.strategyChanges : undefined,
+      verification: isVerificationConfig(p.verification) ? p.verification : undefined,
+      verificationResults: Array.isArray(p.verificationResults) ? p.verificationResults : undefined,
+      budgetConfig: isBudgetConfig(p.budgetConfig) ? p.budgetConfig : undefined,
     }
 
     consecutiveZeroToolCalls = 0
@@ -1066,4 +1546,208 @@ export function deserializeGoal(serialized: string): boolean {
     // Invalid serialized data
   }
   return false
+}
+
+// ============ Skill Demotion (PANDO Pattern) ============
+
+const SKILL_DEMOTION_WINDOW = 10       // 近 10 次使用记录
+const SKILL_DEMOTION_THRESHOLD = 0.5   // 成功率 < 50% 触发降级
+const SKILL_CONSECUTIVE_FAIL_DEMOTE = 3 // 连续 3 次失败直接淘汰
+
+/**
+ * Record a skill usage outcome (success or failure).
+ * Updates the success window and checks for demotion conditions.
+ */
+export function recordSkillOutcome(skillName: string, success: boolean): void {
+  if (!currentGoal?.skillLibrary) return
+
+  const skill = currentGoal.skillLibrary.find(s => s.name === skillName)
+  if (!skill || skill.deprecated) return
+
+  if (success) {
+    skill.successCount++
+  } else {
+    skill.failureCount++
+  }
+  skill.lastUsedTurn = currentGoal.turnsUsed
+  skill.successWindow.push(success)
+  if (skill.successWindow.length > SKILL_DEMOTION_WINDOW) {
+    skill.successWindow.shift()
+  }
+
+  // Check demotion conditions
+  checkSkillDemotion(skill)
+  currentGoal.updatedAt = Date.now()
+}
+
+/**
+ * Check if a skill should be demoted based on its success window.
+ */
+function checkSkillDemotion(skill: SkillEntry): void {
+  if (skill.deprecated) return
+
+  const window = skill.successWindow
+
+  // Condition 1: Consecutive failures
+  if (window.length >= SKILL_CONSECUTIVE_FAIL_DEMOTE) {
+    const lastN = window.slice(-SKILL_CONSECUTIVE_FAIL_DEMOTE)
+    if (lastN.every(v => !v)) {
+      skill.deprecated = true
+      skill.deprecatedReason = `Consecutive ${SKILL_CONSECUTIVE_FAIL_DEMOTE} failures`
+      return
+    }
+  }
+
+  // Condition 2: Success rate below threshold (only after enough data)
+  if (window.length >= SKILL_DEMOTION_WINDOW) {
+    const successRate = window.filter(Boolean).length / window.length
+    if (successRate < SKILL_DEMOTION_THRESHOLD) {
+      skill.deprecated = true
+      skill.deprecatedReason = `Success rate ${(successRate * 100).toFixed(0)}% < ${(SKILL_DEMOTION_THRESHOLD * 100)}% over last ${window.length} uses`
+    }
+  }
+}
+
+/**
+ * Check if a skill is deprecated.
+ */
+export function isSkillDeprecated(skillName: string): boolean {
+  if (!currentGoal?.skillLibrary) return false
+  const skill = currentGoal.skillLibrary.find(s => s.name === skillName)
+  return skill?.deprecated ?? false
+}
+
+/**
+ * Get list of deprecated skills with their reasons.
+ */
+export function getDeprecatedSkills(): { name: string; reason: string }[] {
+  if (!currentGoal?.skillLibrary) return []
+  return currentGoal.skillLibrary
+    .filter(s => s.deprecated)
+    .map(s => ({ name: s.name, reason: s.deprecatedReason ?? 'unknown' }))
+}
+
+// ============ Auto-Verification ============
+
+/**
+ * Set verification commands for the current goal.
+ */
+export function setGoalVerification(config: VerificationConfig): void {
+  if (currentGoal) {
+    currentGoal.verification = config
+    currentGoal.verificationResults = []
+    currentGoal.updatedAt = Date.now()
+    addAuditEntry('strategy_changed', { reason: 'verification_configured', commands: config.commands })
+  }
+}
+
+/**
+ * Get the verification config for the current goal.
+ */
+export function getGoalVerification(): VerificationConfig | null {
+  return currentGoal?.verification ?? null
+}
+
+/**
+ * Record a verification result.
+ */
+export function recordVerificationResult(result: VerificationResult): void {
+  if (!currentGoal) return
+  if (!currentGoal.verificationResults) currentGoal.verificationResults = []
+  currentGoal.verificationResults.push(result)
+  currentGoal.updatedAt = Date.now()
+}
+
+/**
+ * Check if all verification commands passed.
+ * Returns true only if every recorded verification has exitCode 0.
+ */
+export function isVerificationPassed(): boolean {
+  if (!currentGoal?.verification) return true // No verification configured = pass
+  if (!currentGoal.verificationResults?.length) return false // Configured but not run
+
+  return currentGoal.verificationResults.every(r => r.exitCode === 0)
+}
+
+/**
+ * Get verification status summary.
+ */
+export function getVerificationStatus(): string | null {
+  if (!currentGoal?.verification) return null
+
+  const results = currentGoal.verificationResults ?? []
+  if (results.length === 0) return 'Verification: configured but not yet run'
+
+  const passed = results.filter(r => r.exitCode === 0).length
+  const failed = results.filter(r => r.exitCode !== 0).length
+
+  if (failed > 0) {
+    const lastFailure = results.filter(r => r.exitCode !== 0).pop()
+    return `Verification: ${passed} passed, ${failed} failed (last: ${lastFailure?.command} exit ${lastFailure?.exitCode})`
+  }
+  return `Verification: all ${passed} commands passed`
+}
+
+// ============ Token Budget (Cost Guardrails) ============
+
+/**
+ * Set budget configuration for the current goal.
+ */
+export function setBudgetConfig(config: BudgetConfig): void {
+  if (currentGoal) {
+    currentGoal.budgetConfig = config
+    currentGoal.updatedAt = Date.now()
+  }
+}
+
+/**
+ * Get the budget configuration for the current goal.
+ */
+export function getBudgetConfig(): BudgetConfig | null {
+  return currentGoal?.budgetConfig ?? null
+}
+
+/**
+ * Check if any budget warning thresholds have been crossed.
+ * Returns warning messages for crossed thresholds.
+ */
+export function checkBudgetWarning(): string[] {
+  if (!currentGoal?.budgetConfig) return []
+
+  const warnings: string[] = []
+  const budget = currentGoal.budgetConfig
+
+  // Token warnings — sort thresholds descending so we report the highest crossed one
+  if (budget.maxTokensTotal && budget.warningThresholds?.tokens) {
+    const usagePercent = (currentGoal.tokensSpent / budget.maxTokensTotal) * 100
+    const sortedThresholds = [...budget.warningThresholds.tokens].sort((a, b) => b - a)
+    for (const threshold of sortedThresholds) {
+      if (usagePercent >= threshold) {
+        warnings.push(`Token usage at ${Math.round(usagePercent)}% (${currentGoal.tokensSpent}/${budget.maxTokensTotal})`)
+        break // Only report the highest crossed threshold
+      }
+    }
+  }
+
+  return warnings
+}
+
+/**
+ * Get a formatted budget status string.
+ */
+export function getBudgetStatus(): string | null {
+  if (!currentGoal?.budgetConfig) return null
+
+  const budget = currentGoal.budgetConfig
+  const parts: string[] = []
+
+  if (budget.maxTokensTotal) {
+    const percent = Math.round((currentGoal.tokensSpent / budget.maxTokensTotal) * 100)
+    parts.push(`Tokens: ${formatTokens(currentGoal.tokensSpent)}/${formatTokens(budget.maxTokensTotal)} (${percent}%)`)
+  }
+  if (budget.maxCostUSD) {
+    parts.push(`Max: $${budget.maxCostUSD}`)
+  }
+
+  return parts.length > 0 ? parts.join(' | ') : null
 }

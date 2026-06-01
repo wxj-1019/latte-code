@@ -11,7 +11,7 @@
  * - Include progress metrics for context awareness
  */
 
-import { type Goal, getExecutionProgress, getErrorRecoveryHint, getReflectionPrompt, getSubtaskProgress, getNextSubtask, getCompactStatus, isCompletionSignalSent } from './goalState.js'
+import { type Goal, getExecutionProgress, getErrorRecoveryHint, getReflectionPrompt, getSubtaskProgress, getNextSubtask, getCompactStatus, isCompletionSignalSent, getRelevantLessons, getReplanPrompt, getRelevantSkills, getParallelHint, getEpisodicSummary, getSkillLibrarySummary, getGoalConfig, getVerificationStatus, getBudgetStatus, getDeprecatedSkills } from './goalState.js'
 
 /**
  * Build the continuation prompt injected when a goal is active.
@@ -43,8 +43,9 @@ Status: completing...
     : ''
 
   // Include execution plan progress if available
-  const progressSection = getExecutionProgress()
-    ? `\nExecution Plan:\n${getExecutionProgress()}`
+  const executionProgress = getExecutionProgress()
+  const progressSection = executionProgress
+    ? `\nExecution Plan:\n${executionProgress}`
     : ''
 
   // Include subtask progress if available
@@ -55,13 +56,16 @@ Status: completing...
   const nextSubtask = getNextSubtask()
   const nextSubtaskHint = nextSubtask ? `\nNext subtask: ${nextSubtask.description}` : ''
 
-  // Resource warnings
+  // Resource warnings (thresholds configurable via env)
+  const config = getGoalConfig()
+  const warn60 = parseInt(config.resourceWarning60, 10) || 60
+  const warn80 = parseInt(config.resourceWarning80, 10) || 80
   const turnUsagePercent = Math.round((goal.turnsUsed / goal.maxTurns) * 100)
   let resourceWarning = ''
-  if (turnUsagePercent >= 80) {
-    resourceWarning = '\n[WARNING: >80% turns used - prioritize critical steps]'
-  } else if (turnUsagePercent >= 60) {
-    resourceWarning = '\n[NOTICE: >60% turns used - focus on high-impact items]'
+  if (turnUsagePercent >= warn80) {
+    resourceWarning = `\n[WARNING: >${warn80}% turns used - prioritize critical steps]`
+  } else if (turnUsagePercent >= warn60) {
+    resourceWarning = `\n[NOTICE: >${warn60}% turns used - focus on high-impact items]`
   }
 
   // Error recovery hint
@@ -81,14 +85,54 @@ Status: completing...
   const compactStatus = getCompactStatus()
   const compactSection = compactStatus ? `\n${compactStatus}` : ''
 
+  // Episodic memory lessons (Reflexion pattern)
+  const lessons = getRelevantLessons(3)
+  const lessonsSection = lessons ? `\nLessons from past failures:\n${lessons}` : ''
+
+  // Adaptive re-planning check
+  const replanPrompt = getReplanPrompt()
+  const replanSection = replanPrompt ? `\n${replanPrompt}` : ''
+
+  // Skill library hints (Voyager pattern)
+  const skills = getRelevantSkills(goal.objective)
+  const skillsSection = skills ? `\nRelevant skills:\n${skills}` : ''
+
+  // Parallel execution hints
+  const parallelHint = getParallelHint()
+  const parallelSection = parallelHint ? `\n${parallelHint}` : ''
+
+  // Verification status
+  const verificationStatus = getVerificationStatus()
+  const verificationSection = verificationStatus ? `\n${verificationStatus}` : ''
+
+  // Budget status (token cost guardrails)
+  const budgetStatus = getBudgetStatus()
+  const budgetSection = budgetStatus ? `\n${budgetStatus}` : ''
+
+  // Deprecated skills warning
+  const deprecatedSkills = getDeprecatedSkills()
+  const deprecatedSection = deprecatedSkills.length > 0
+    ? `\nDeprecated skills (avoid): ${deprecatedSkills.map(s => `${s.name} (${s.reason})`).join(', ')}`
+    : ''
+
+  // Status summaries
+  const episodicSummary = getEpisodicSummary()
+  const skillSummary = getSkillLibrarySummary()
+  const statusSummaries = [episodicSummary, skillSummary].filter(Boolean)
+  const statusSection = statusSummaries.length ? `\n${statusSummaries.join(' | ')}` : ''
+
   return `<goal>${urgencyPrefix}Objective: ${goal.objective}${conditionSection}${evaluatorSection}
-Progress: ${goal.turnsUsed}/${goal.maxTurns} (${remainingTurns} left)${progressSection}${subtaskSection}${nextSubtaskHint}${resourceWarning}${errorSection}${milestoneCheck}${reflectionSection}${compactSection}
+Progress: ${goal.turnsUsed}/${goal.maxTurns} (${remainingTurns} left)${progressSection}${subtaskSection}${nextSubtaskHint}${resourceWarning}${errorSection}${lessonsSection}${replanSection}${skillsSection}${parallelSection}${milestoneCheck}${reflectionSection}${compactSection}${verificationSection}${budgetSection}${deprecatedSection}${statusSection}
 
 CONTINUATION INSTRUCTIONS:
 - Review your execution plan and continue from where you left off
 - Execute the next most impactful step from your plan
 - Update progress tracking (mark completed steps with [x])
-- If a step failed, try an alternative approach or skip it
+- Learn from past failures: apply lessons from episodic memory
+- If a step failed, record the lesson and try an alternative approach
+- If re-planning is required, generate a new shorter plan
+- Use learned skills when applicable
+- If parallelizable tasks exist, execute them together
 - If the goal is fully achieved, output [GOAL_COMPLETED]
 - Do NOT ask for user input - proceed autonomously
 - If stuck, try alternative approaches</goal>`
@@ -108,15 +152,6 @@ FINAL TASK:
 }
 
 /**
- * Build the completion prompt when goal is marked complete.
- * NOTE: Not currently invoked by the goal loop — completion is detected
- * via the [GOAL_COMPLETED] marker in assistant text. Kept for API completeness.
- */
-export function buildGoalCompletePrompt(goal: Goal): string {
-  return `<goal>COMPLETED: ${goal.objective} (${goal.turnsUsed}/${goal.maxTurns} turns). Provide a concise summary.</goal>`
-}
-
-/**
  * Build the suppression prompt when goal auto-completes due to inactivity.
  */
 export function buildGoalSuppressionPrompt(goal: Goal, consecutiveIdleTurns: number): string {
@@ -125,17 +160,29 @@ export function buildGoalSuppressionPrompt(goal: Goal, consecutiveIdleTurns: num
 
 /**
  * Build the evaluator prompt that asks the model to self-evaluate goal completion.
- * This simulates Claude Code's independent evaluator (Haiku) by prompting the
- * main model to assess whether the completion condition is met.
+ * Enhanced with structured verification checklist.
  *
  * Returns the prompt string to be injected at the end of a turn.
  */
 export function buildGoalEvaluatorPrompt(goal: Goal): string {
   const condition = goal.condition || goal.objective
 
+  const verificationCmds = goal.verification?.commands
+  const verificationSection = verificationCmds?.length
+    ? `\n5. Have these verification commands passed: ${verificationCmds.join(', ')}?`
+    : ''
+
   return `<eval>Is this condition met? "${condition}"
+
+VERIFICATION CHECKLIST (answer before declaring complete):
+1. Have all planned steps been executed?
+2. Have verification commands been run (tests, build, lint)?
+3. Are there any remaining errors or failures?
+4. Does the output match the original objective?${verificationSection}
+
 Format: COMPLETED: [YES/NO] | REASON: [one sentence]
-If YES, also output [GOAL_COMPLETED] on its own line.</eval>`
+If YES, also output [GOAL_COMPLETED] on its own line.
+If NO, list what still needs to be done.</eval>`
 }
 
 /**
@@ -170,24 +217,33 @@ WORKFLOW (must follow in order):
    - Invoke relevant skills via the Skill tool when they can help
    - Track progress: mark completed steps with [x]
    - For independent steps, consider executing in parallel using multiple tool calls
-   - If a step fails, record the error and try an alternative approach
+   - If a step fails, record the LESSON LEARNED and try an alternative approach
 
-4. VERIFY PHASE:
+4. LEARNING PHASE (after each failure):
+   - Record what was attempted and why it failed
+   - Extract a reusable lesson for future steps
+   - Apply lessons to avoid repeating the same mistakes
+
+5. VERIFY PHASE:
    - After execution, verify the results meet the goal
    - Run tests, check outputs, validate completion criteria
    - If not satisfied, iterate and fix issues
 
-5. ADAPTATION:
+6. ADAPTATION:
    - If execution reveals the plan needs adjustment, update it
    - Add, remove, or reorder steps as needed
    - Document why changes were made
+   - If >60% turns used with <30% progress, generate a NEW shorter plan
 
-6. COMPLETION:
-   - Only output [GOAL_COMPLETED] when the goal is fully achieved
+7. COMPLETION:
+   - Only output [GOAL_COMPLETED] when the goal is FULLY achieved
+   - Before completing, run verification commands (tests, build, etc.)
    - Provide a brief summary of what was accomplished
 
 IMPORTANT:
 - Do NOT ask the user for input - proceed autonomously
 - Do NOT wait for permission - execute the plan directly
-- If stuck, try alternative approaches rather than stopping</goal>`
+- If stuck, try alternative approaches rather than stopping
+- Learn from failures: record lessons to avoid repeating mistakes
+- If replanning is triggered, focus on critical items only</goal>`
 }

@@ -24,6 +24,7 @@ import {
   setOriginalPermissionMode,
   restoreOriginalPermissionMode,
   initReflection,
+  getGoalConfig,
 } from './goalState.js'
 import { buildGoalInitialPrompt, buildGoalContinuationPrompt } from './goalPrompts.js'
 
@@ -59,34 +60,34 @@ export function levenshteinDistance(a: string, b: string): number {
   if (m === 0) return n
   if (n === 0) return m
 
-  const dp: number[][] = Array.from({ length: m + 1 }, () => Array(n + 1).fill(0))
-  for (let i = 0; i <= m; i++) dp[i]![0] = i
-  for (let j = 0; j <= n; j++) dp[0]![j] = j
+  // Use rolling array for O(min(m,n)) space
+  const [shorter, longer] = m <= n ? [a, b] : [b, a]
+  const sLen = shorter.length
+  const lLen = longer.length
 
-  for (let i = 1; i <= m; i++) {
-    for (let j = 1; j <= n; j++) {
-      const cost = a[i - 1] === b[j - 1] ? 0 : 1
-      dp[i]![j] = Math.min(
-        dp[i - 1]![j]! + 1,      // deletion
-        dp[i]![j - 1]! + 1,      // insertion
-        dp[i - 1]![j - 1]! + cost // substitution
+  let prev = Array.from({ length: sLen + 1 }, (_, i) => i)
+  let curr = new Array<number>(sLen + 1)
+
+  for (let i = 1; i <= lLen; i++) {
+    curr[0] = i
+    for (let j = 1; j <= sLen; j++) {
+      const cost = longer[i - 1] === shorter[j - 1] ? 0 : 1
+      curr[j] = Math.min(
+        prev[j]! + 1,      // deletion
+        curr[j - 1]! + 1,  // insertion
+        prev[j - 1]! + cost // substitution
       )
     }
+    ;[prev, curr] = [curr, prev]
   }
 
-  return dp[m]![n]!
+  return prev[sLen]!
 }
 
 function parseMaxTurns(): number {
-  const maxTurnsEnv = process.env.GOAL_MAX_TURNS
-  if (!maxTurnsEnv) {
-    return 50
-  }
-  const parsed = parseInt(maxTurnsEnv, 10)
-  if (Number.isNaN(parsed) || parsed < 1) {
-    return 50
-  }
-  return parsed
+  const config = getGoalConfig()
+  const parsed = parseInt(config.env_GOAL_MAX_TURNS, 10)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 50
 }
 
 /**

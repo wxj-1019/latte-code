@@ -1,13 +1,13 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 import {
   buildGoalContinuationPrompt,
   buildGoalBudgetLimitPrompt,
-  buildGoalCompletePrompt,
   buildGoalSuppressionPrompt,
   buildGoalEvaluatorPrompt,
   buildGoalInitialPrompt,
 } from '../goalPrompts.js'
 import type { Goal } from '../goalState.js'
+import { setGoal, clearGoal, setGoalVerification, setBudgetConfig, addTokensSpent } from '../goalState.js'
 
 function makeGoal(overrides: Partial<Goal> = {}): Goal {
   return {
@@ -26,6 +26,10 @@ function makeGoal(overrides: Partial<Goal> = {}): Goal {
 }
 
 describe('goalPrompts', () => {
+  beforeEach(() => {
+    clearGoal()
+  })
+
   describe('buildGoalContinuationPrompt', () => {
     it('should include objective and progress', () => {
       const goal = makeGoal()
@@ -71,16 +75,6 @@ describe('goalPrompts', () => {
     })
   })
 
-  describe('buildGoalCompletePrompt', () => {
-    it('should include completion message', () => {
-      const goal = makeGoal({ status: 'complete', turnsUsed: 5 })
-      const prompt = buildGoalCompletePrompt(goal)
-      expect(prompt).toContain('COMPLETED')
-      expect(prompt).toContain('fix all bugs')
-      expect(prompt).toContain('5/10')
-    })
-  })
-
   describe('buildGoalSuppressionPrompt', () => {
     it('should include auto-completed message with idle turns', () => {
       const goal = makeGoal()
@@ -122,6 +116,48 @@ describe('goalPrompts', () => {
     it('should not include condition section for objective mode', () => {
       const prompt = buildGoalInitialPrompt('fix bugs', 10, 'objective')
       expect(prompt).not.toContain('Condition:')
+    })
+  })
+
+  describe('buildGoalContinuationPrompt - verification section', () => {
+    it('should include verification status when configured', () => {
+      setGoal('fix bugs', 10)
+      setGoalVerification({
+        commands: ['npm test'],
+        maxRetries: 1,
+        timeoutMs: 10000,
+      })
+      const goal = { ...makeGoal(), verification: { commands: ['npm test'], maxRetries: 1, timeoutMs: 10000 } }
+      const prompt = buildGoalContinuationPrompt(goal)
+      expect(prompt).toContain('Verification')
+    })
+  })
+
+  describe('buildGoalContinuationPrompt - budget section', () => {
+    it('should include budget status when configured', () => {
+      setGoal('test', 10)
+      setBudgetConfig({
+        maxTokensTotal: 100000,
+        maxCostUSD: 5.0,
+        warningThresholds: { tokens: [], cost: [] },
+      })
+      addTokensSpent(5000)
+      const goal = makeGoal({ tokensSpent: 5000 })
+      // Manually set budget on the goal for the prompt test
+      const goalWithBudget = { ...goal, budgetConfig: { maxTokensTotal: 100000, maxCostUSD: 5.0, warningThresholds: { tokens: [] as number[], cost: [] as number[] } } }
+      const prompt = buildGoalContinuationPrompt(goalWithBudget as any)
+      expect(prompt).toContain('Budget')
+    })
+  })
+
+  describe('buildGoalEvaluatorPrompt - verification awareness', () => {
+    it('should include verification commands in evaluator when configured', () => {
+      const goal = makeGoal({
+        verification: { commands: ['npm test', 'tsc --noEmit'], maxRetries: 2, timeoutMs: 30000 },
+      })
+      const prompt = buildGoalEvaluatorPrompt(goal)
+      expect(prompt).toContain('npm test')
+      expect(prompt).toContain('tsc --noEmit')
     })
   })
 })

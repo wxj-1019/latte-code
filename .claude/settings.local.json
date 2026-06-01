@@ -30,7 +30,10 @@
       "Bash(bun test:*)",
       "Bash(git add:*)",
       "Bash(git commit:*)",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Bash(ls -la ./latte*)",
+      "Bash(ls -la ./cli*)",
+      "Bash(./latte.exe --help)"
     ]
   }
 }
