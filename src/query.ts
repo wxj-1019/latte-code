@@ -69,6 +69,8 @@ import {
   getConsecutiveZeroToolCalls,
   getOriginalPermissionMode,
   setOriginalPermissionMode,
+  restoreOriginalPermissionMode,
+  recordCompact,
 } from './commands/goal/goalState.js'
 import {
   buildGoalBudgetLimitPrompt,
@@ -330,19 +332,22 @@ async function* queryLoop(
   // for what's included and why feature() gates are intentionally excluded.
   const config = buildQueryConfig()
 
-  // Helper to restore original permission mode when goal terminates
-  const restoreGoalPermissions = (ctx: ToolUseContext) => {
-    const originalMode = getOriginalPermissionMode()
-    if (originalMode) {
-      ctx.setAppState(prev => ({
-        ...prev,
-        toolPermissionContext: {
-          ...prev.toolPermissionContext,
-          mode: originalMode,
-        },
-      }))
-      setOriginalPermissionMode(null)
+  /** Extract concatenated text from all assistant text blocks (used for goal marker detection). */
+  const extractAssistantText = (messages: AssistantMessage[]): string => {
+    let text = ''
+    for (const m of messages) {
+      if (typeof m.content === 'string') {
+        text += m.content
+      } else if (Array.isArray(m.content)) {
+        for (const c of m.content) {
+          if (typeof c === 'string') text += c
+          else if (c && typeof c === 'object' && c.type === 'text' && typeof c.text === 'string') {
+            text += c.text
+          }
+        }
+      }
     }
+    return text
   }
 
   // Fired once per user turn — the prompt is invariant across loop iterations,
@@ -525,6 +530,12 @@ async function* queryLoop(
         truePostCompactTokenCount,
         compactionUsage,
       } = compactionResult
+
+      // Record compact event for goal state tracking
+      const goalForCompact = getGoal()
+      if (goalForCompact) {
+        recordCompact(`Compacted ${preCompactTokenCount} → ${postCompactTokenCount} tokens`)
+      }
 
       logEvent('tengu_auto_compact_succeeded', {
         originalMessageCount: messages.length,
@@ -1420,30 +1431,18 @@ async function* queryLoop(
         recordToolCallPresence(false)
 
         if (isGoalActive()) {
-          let assistantText = ''
-          for (const m of assistantMessages) {
-            if (typeof m.content === 'string') {
-              assistantText += m.content
-            } else if (Array.isArray(m.content)) {
-              for (const c of m.content) {
-                if (typeof c === 'string') assistantText += c
-                else if (c && typeof c === 'object' && c.type === 'text' && typeof c.text === 'string') {
-                  assistantText += c.text
-                }
-              }
-            }
-          }
+          const assistantText = extractAssistantText(assistantMessages)
 
           if (assistantText.includes('[GOAL_COMPLETED]')) {
             markGoalComplete()
             updateEvaluatorReason('Model reported goal completion')
-            restoreGoalPermissions(toolUseContext)
+            restoreOriginalPermissionMode(toolUseContext.setAppState.bind(toolUseContext))
           } else if (goalOnEndTurn.turnsUsed >= goalOnEndTurn.maxTurns) {
             markGoalBudgetLimited()
-            restoreGoalPermissions(toolUseContext)
+            restoreOriginalPermissionMode(toolUseContext.setAppState.bind(toolUseContext))
           } else if (shouldSuppressContinuation()) {
             markGoalComplete()
-            restoreGoalPermissions(toolUseContext)
+            restoreOriginalPermissionMode(toolUseContext.setAppState.bind(toolUseContext))
           } else {
             const continuationPrompt = buildGoalContinuationPrompt(goalOnEndTurn)
             const continuationMsg = createUserMessage({
@@ -1841,32 +1840,18 @@ async function* queryLoop(
       recordToolCallPresence(hadToolCalls)
 
       if (isGoalActive()) {
-        // Check for auto-completion marker in assistant messages
-        // Only check text blocks, not tool_use blocks
-        let assistantText = ''
-        for (const m of assistantMessages) {
-          if (typeof m.content === 'string') {
-            assistantText += m.content
-          } else if (Array.isArray(m.content)) {
-            for (const c of m.content) {
-              if (typeof c === 'string') assistantText += c
-              else if (c && typeof c === 'object' && c.type === 'text' && typeof c.text === 'string') {
-                assistantText += c.text
-              }
-            }
-          }
-        }
+        // Check for auto-completion marker in assistant messages (text blocks only)
+        const assistantText = extractAssistantText(assistantMessages)
 
         if (assistantText.includes('[GOAL_COMPLETED]')) {
           markGoalComplete()
           updateEvaluatorReason('Model reported goal completion')
-          // Restore original permission mode when goal completes
-          restoreGoalPermissions(toolUseContext)
+          restoreOriginalPermissionMode(toolUseContext.setAppState.bind(toolUseContext))
           // Goal will be shown as complete in status line
         } else if (goal.turnsUsed >= goal.maxTurns) {
           markGoalBudgetLimited()
           // Restore original permission mode when budget is reached
-          restoreGoalPermissions(toolUseContext)
+          restoreOriginalPermissionMode(toolUseContext.setAppState.bind(toolUseContext))
           const budgetMessage = buildGoalBudgetLimitPrompt(goal)
           toolResults.push(
             createUserMessage({ content: budgetMessage, isMeta: true }),
@@ -1875,7 +1860,7 @@ async function* queryLoop(
           // Too many consecutive turns without tool calls
           markGoalComplete()
           // Restore original permission mode when goal is suppressed
-          restoreGoalPermissions(toolUseContext)
+          restoreOriginalPermissionMode(toolUseContext.setAppState.bind(toolUseContext))
           const suppressionMessage = buildGoalSuppressionPrompt(
             goal,
             getConsecutiveZeroToolCalls(),

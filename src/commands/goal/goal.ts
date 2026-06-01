@@ -22,6 +22,8 @@ import {
   setGoal,
   getOriginalPermissionMode,
   setOriginalPermissionMode,
+  restoreOriginalPermissionMode,
+  initReflection,
 } from './goalState.js'
 import { buildGoalInitialPrompt, buildGoalContinuationPrompt } from './goalPrompts.js'
 
@@ -31,7 +33,7 @@ const SUBCOMMANDS = ['pause', 'resume', 'clear', 'status', 'stop', 'off', 'reset
  * Find the closest matching subcommand for typo correction.
  * Uses simple Levenshtein distance for fuzzy matching.
  */
-function findClosestSubcommand(input: string): string | null {
+export function findClosestSubcommand(input: string): string | null {
   const lower = input.toLowerCase()
   let best: string | null = null
   let bestScore = Infinity
@@ -51,7 +53,7 @@ function findClosestSubcommand(input: string): string | null {
   return best
 }
 
-function levenshteinDistance(a: string, b: string): number {
+export function levenshteinDistance(a: string, b: string): number {
   const m = a.length
   const n = b.length
   if (m === 0) return n
@@ -78,11 +80,11 @@ function levenshteinDistance(a: string, b: string): number {
 function parseMaxTurns(): number {
   const maxTurnsEnv = process.env.GOAL_MAX_TURNS
   if (!maxTurnsEnv) {
-    return 10
+    return 50
   }
   const parsed = parseInt(maxTurnsEnv, 10)
   if (Number.isNaN(parsed) || parsed < 1) {
-    return 10
+    return 50
   }
   return parsed
 }
@@ -110,22 +112,7 @@ function enableBypassPermissions(context: ToolUseContext): void {
   }))
 }
 
-/**
- * Restore the original permission mode before goal was set.
- */
-function restoreOriginalPermissions(context: ToolUseContext): void {
-  const originalMode = getOriginalPermissionMode()
-  if (originalMode) {
-    context.setAppState(prev => ({
-      ...prev,
-      toolPermissionContext: {
-        ...prev.toolPermissionContext,
-        mode: originalMode,
-      },
-    }))
-    setOriginalPermissionMode(null)
-  }
-}
+const MAX_OBJECTIVE_LENGTH = 500
 
 export const call: LocalCommandCall = async (
   args: string,
@@ -151,7 +138,7 @@ export const call: LocalCommandCall = async (
         return { type: 'text', value: `Goal is already ${goal.status}.` }
       }
       pauseGoal()
-      restoreOriginalPermissions(context)
+      restoreOriginalPermissionMode(context.setAppState.bind(context))
       return { type: 'text', value: `Goal paused: ${goal.objective}` }
     }
 
@@ -180,7 +167,7 @@ export const call: LocalCommandCall = async (
       }
       const objective = goal.objective
       clearGoal()
-      restoreOriginalPermissions(context)
+      restoreOriginalPermissionMode(context.setAppState.bind(context))
       return { type: 'text', value: `Goal cleared: ${objective}` }
     }
 
@@ -190,9 +177,17 @@ export const call: LocalCommandCall = async (
         return { type: 'text', value: 'Goal objective is too short. Please provide a meaningful description.' }
       }
 
-      const closest = findClosestSubcommand(trimmed)
-      if (closest) {
-        return { type: 'text', value: `Unknown subcommand "${trimmed}". Did you mean: /goal ${closest}?` }
+      if (trimmed.length > MAX_OBJECTIVE_LENGTH) {
+        return { type: 'text', value: `Goal objective is too long (max ${MAX_OBJECTIVE_LENGTH} characters, got ${trimmed.length}).` }
+      }
+
+      // Only check for subcommand typos on short inputs to avoid false positives
+      // on real objectives like "clear the cache" matching "clear"
+      if (trimmed.length <= 12) {
+        const closest = findClosestSubcommand(trimmed)
+        if (closest) {
+          return { type: 'text', value: `Unknown subcommand "${trimmed}". Did you mean: /goal ${closest}?` }
+        }
       }
 
       // Warn if overwriting existing active goal
@@ -200,12 +195,15 @@ export const call: LocalCommandCall = async (
       if (existingGoal && existingGoal.status === 'active') {
         // Overwrite and continue
         clearGoal()
-        restoreOriginalPermissions(context)
+        restoreOriginalPermissionMode(context.setAppState.bind(context))
       }
 
       const objective = trimmed
       const maxTurns = parseMaxTurns()
       setGoal(objective, maxTurns)
+
+      // Initialize self-reflection mechanism
+      initReflection()
 
       // Enable bypassPermissions mode for autonomous goal execution
       enableBypassPermissions(context)
