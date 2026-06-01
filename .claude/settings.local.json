@@ -24,7 +24,13 @@
       "Bash(gfind \"E:/project/latte-code/src\" -name \"model*\" -type f)",
       "Bash(gfind \"E:/project/latte-code/src\" -name \"provider*\" -type f)",
       "Bash(command grep:*)",
-      "Bash(npx tsc:*)"
+      "Bash(npx tsc:*)",
+      "Bash(find E:/project/latte-code -maxdepth 1 -name vitest* -o -name vite*)",
+      "Bash(npx vitest:*)",
+      "Bash(bun test:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)"
     ]
   }
 }

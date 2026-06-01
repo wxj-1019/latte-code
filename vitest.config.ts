@@ -4,7 +4,10 @@ import path from 'node:path'
 export default defineConfig({
   test: {
     // Only test src/query/__tests__ for now; expand later
-    include: ['src/query/__tests__/**/*.test.ts'],
+    include: [
+      'src/query/__tests__/**/*.test.ts',
+      'src/commands/goal/__tests__/**/*.test.ts',
+    ],
     pool: 'forks',
   },
   resolve: {
