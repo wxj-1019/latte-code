@@ -39,6 +39,10 @@ export function startBackgroundHousekeeping(): void {
     const nudgeEngineModule = require('../services/nudgeEngine/nudgeEngine.js') as typeof import('../services/nudgeEngine/nudgeEngine.js')
     nudgeEngineModule.initNudgeEngine()
   }
+  if (feature('WORKFLOW_SCRIPTS')) {
+    const workflowNudgeModule = require('../services/workflow/nudgeIntegration.js') as typeof import('../services/workflow/nudgeIntegration.js')
+    workflowNudgeModule.initWorkflowNudgeIntegration()
+  }
   void autoUpdateMarketplacesAndPluginsInBackground()
   if (feature('LODESTONE') && getIsInteractive()) {
     void registerProtocolModule!.ensureDeepLinkProtocolRegistered()

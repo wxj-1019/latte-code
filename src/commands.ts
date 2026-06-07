@@ -54,6 +54,7 @@ const agentsPlatform =
 import securityReview from './commands/security-review.js'
 import bughunter from './commands/bughunter/index.js'
 import terminalSetup from './commands/terminalSetup/index.js'
+import terminalContext from './commands/terminal-context/index.js'
 import usage from './commands/usage/index.js'
 import theme from './commands/theme/index.js'
 import gui from './commands/gui/index.js'
@@ -316,6 +317,7 @@ const COMMANDS = memoize((): Command[] => {
   rewind,
   securityReview,
   terminalSetup,
+  terminalContext,
   upgrade,
   extraUsage,
   extraUsageNonInteractive,

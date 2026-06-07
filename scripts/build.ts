@@ -59,6 +59,7 @@ const fullExperimentalFeatures = [
   'VERIFICATION_AGENT',
   'VOICE_MODE',
   'NUDGE_ENGINE',
+  'WORKFLOW_SCRIPTS',
 ] as const
 
 function runCommand(cmd: string[]): string | null {

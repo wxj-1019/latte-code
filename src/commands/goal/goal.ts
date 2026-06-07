@@ -27,6 +27,7 @@ import {
   getGoalConfig,
 } from './goalState.js'
 import { buildGoalInitialPrompt, buildGoalContinuationPrompt } from './goalPrompts.js'
+import { captureTerminalState, formatTerminalContext } from '../../services/terminalAwareness.js'
 
 const SUBCOMMANDS = ['pause', 'resume', 'clear', 'status', 'stop', 'off', 'reset', 'cancel']
 
@@ -87,30 +88,38 @@ export function levenshteinDistance(a: string, b: string): number {
 function parseMaxTurns(): number {
   const config = getGoalConfig()
   const parsed = parseInt(config.env_GOAL_MAX_TURNS, 10)
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 50
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 100
 }
 
 /**
- * Enable bypassPermissions mode when a goal is set.
+ * Enable acceptEdits mode when a goal is set.
+ * Auto-approves workspace edits while requiring user confirmation
+ * for external operations. Safer than the previous bypassPermissions.
  * Restores original mode when goal is cleared/paused.
  */
-function enableBypassPermissions(context: ToolUseContext): void {
-  const appState = context.getAppState()
-  const currentMode = appState.toolPermissionContext.mode
-  // Already in bypassPermissions — nothing to do (user started with --dangerously-skip-permissions, etc.)
-  if (currentMode === 'bypassPermissions') return
-  // Save current mode if not already saved (preserves the very first mode for nested goal resets)
-  if (!getOriginalPermissionMode()) {
-    setOriginalPermissionMode(currentMode)
+function enableGoalAutoApproval(context: ToolUseContext): void {
+  try {
+    const appState = context.getAppState()
+    if (!appState || !appState.toolPermissionContext) return
+
+    const currentMode = appState.toolPermissionContext.mode
+    // Already in bypass — nothing to do (user started with --dangerously-skip-permissions, etc.)
+    if (currentMode === 'bypassPermissions') return
+    // Save current mode if not already saved
+    if (!getOriginalPermissionMode()) {
+      setOriginalPermissionMode(currentMode)
+    }
+    // Switch to acceptEdits mode — safer than bypassPermissions
+    context.setAppState(prev => ({
+      ...prev,
+      toolPermissionContext: {
+        ...prev.toolPermissionContext,
+        mode: 'acceptEdits',
+      },
+    }))
+  } catch (e) {
+    // Degrade gracefully — goal continues without permission change
   }
-  // Switch to bypassPermissions mode
-  context.setAppState(prev => ({
-    ...prev,
-    toolPermissionContext: {
-      ...prev.toolPermissionContext,
-      mode: 'bypassPermissions',
-    },
-  }))
 }
 
 const MAX_OBJECTIVE_LENGTH = 500
@@ -152,7 +161,7 @@ export const call: LocalCommandCall = async (
         return { type: 'text', value: `Goal is ${goal.status}, not paused.` }
       }
       resumeGoal()
-      enableBypassPermissions(context)
+      enableGoalAutoApproval(context)
       const continuationPrompt = buildGoalContinuationPrompt(getGoal()!)
       return { type: 'query', value: continuationPrompt, displayText: `Goal resumed: ${goal.objective}` }
     }
@@ -206,16 +215,22 @@ export const call: LocalCommandCall = async (
       // Initialize self-reflection mechanism
       initReflection()
 
-      // Enable bypassPermissions mode for autonomous goal execution
-      enableBypassPermissions(context)
+      // Enable auto-approval mode with Smart Approvals safety net
+      enableGoalAutoApproval(context)
+
+      // Inject terminal context so the model knows the current environment
+      const terminalState = captureTerminalState()
+      const terminalContext = formatTerminalContext(terminalState)
 
       // Return initial prompt to be sent to the model
       const mode = isConditionMode() ? 'condition' as const : 'objective' as const
       const condition = getGoalCondition()
       const initialPrompt = buildGoalInitialPrompt(objective, maxTurns, mode, condition)
 
+      const fullPrompt = initialPrompt + '\n\n' + terminalContext
+
       const modeLabel = mode === 'condition' ? 'Condition' : 'Objective'
-      return { type: 'query', value: initialPrompt, displayText: `Goal set: ${objective}\nMode: ${modeLabel}\nMax turns: ${maxTurns}` }
+      return { type: 'query', value: fullPrompt, displayText: `Goal set: ${objective}\nMode: ${modeLabel}\nMax turns: ${maxTurns}` }
     }
   }
 }

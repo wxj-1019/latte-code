@@ -23,7 +23,7 @@ import { type Goal, getExecutionProgress, getErrorRecoveryHint, getReflectionPro
 export function buildGoalContinuationPrompt(goal: Goal): string {
   // If completion signal already sent, return minimal prompt to save tokens
   if (isCompletionSignalSent()) {
-    return `<goal>Objective: ${goal.objective}
+    return `<goal>Objective: ${sanitizePromptText(goal.objective)}
 Status: completing...
 
 [GOAL_COMPLETED]</goal>`
@@ -35,11 +35,11 @@ Status: completing...
     : ''
 
   const conditionSection = goal.mode === 'condition' && goal.condition
-    ? `\nCondition: ${goal.condition}`
+    ? `\nCondition: ${sanitizePromptText(goal.condition)}`
     : ''
 
   const evaluatorSection = goal.evaluatorReason
-    ? `\nLast eval: ${goal.evaluatorReason}`
+    ? `\nLast eval: ${sanitizePromptText(goal.evaluatorReason)}`
     : ''
 
   // Include execution plan progress if available
@@ -101,6 +101,11 @@ Status: completing...
   const parallelHint = getParallelHint()
   const parallelSection = parallelHint ? `\n${parallelHint}` : ''
 
+  // Workflow tool guidance — suggests parallel execution for independent tasks
+  const workflowHint = goal.turnsUsed > 0 && remainingTurns > 5
+    ? '\nTip: Use the Workflow tool to spawn parallel sub-agents for independent plan steps.'
+    : ''
+
   // Verification status
   const verificationStatus = getVerificationStatus()
   const verificationSection = verificationStatus ? `\n${verificationStatus}` : ''
@@ -122,7 +127,7 @@ Status: completing...
   const statusSection = statusSummaries.length ? `\n${statusSummaries.join(' | ')}` : ''
 
   return `<goal>${urgencyPrefix}Objective: ${goal.objective}${conditionSection}${evaluatorSection}
-Progress: ${goal.turnsUsed}/${goal.maxTurns} (${remainingTurns} left)${progressSection}${subtaskSection}${nextSubtaskHint}${resourceWarning}${errorSection}${lessonsSection}${replanSection}${skillsSection}${parallelSection}${milestoneCheck}${reflectionSection}${compactSection}${verificationSection}${budgetSection}${deprecatedSection}${statusSection}
+Progress: ${goal.turnsUsed}/${goal.maxTurns} (${remainingTurns} left)${progressSection}${subtaskSection}${nextSubtaskHint}${resourceWarning}${errorSection}${lessonsSection}${replanSection}${skillsSection}${parallelSection}${workflowHint}${milestoneCheck}${reflectionSection}${compactSection}${verificationSection}${budgetSection}${deprecatedSection}${statusSection}
 
 CONTINUATION INSTRUCTIONS:
 - Review your execution plan and continue from where you left off
@@ -132,6 +137,7 @@ CONTINUATION INSTRUCTIONS:
 - If a step failed, record the lesson and try an alternative approach
 - If re-planning is required, generate a new shorter plan
 - Use learned skills when applicable
+- For multiple independent steps, use the Workflow tool (spawn parallel sub-agents)
 - If parallelizable tasks exist, execute them together
 - If the goal is fully achieved, output [GOAL_COMPLETED]
 - Do NOT ask for user input - proceed autonomously
@@ -142,7 +148,7 @@ CONTINUATION INSTRUCTIONS:
  * Build the budget limit prompt when max turns reached.
  */
 export function buildGoalBudgetLimitPrompt(goal: Goal): string {
-  return `<goal>BUDGET EXHAUSTED (${goal.maxTurns} turns). Objective: ${goal.objective}
+  return `<goal>BUDGET EXHAUSTED (${goal.maxTurns} turns). Objective: ${sanitizePromptText(goal.objective)}
 
 FINAL TASK:
 - Summarize what was accomplished
@@ -155,7 +161,7 @@ FINAL TASK:
  * Build the suppression prompt when goal auto-completes due to inactivity.
  */
 export function buildGoalSuppressionPrompt(goal: Goal, consecutiveIdleTurns: number): string {
-  return `<goal>AUTO-COMPLETED: ${goal.objective} — no tool calls for ${consecutiveIdleTurns} turns. Provide a final summary of what was accomplished.</goal>`
+  return `<goal>AUTO-COMPLETED: ${sanitizePromptText(goal.objective)} — no tool calls for ${consecutiveIdleTurns} turns. Provide a final summary of what was accomplished.</goal>`
 }
 
 /**
@@ -164,8 +170,22 @@ export function buildGoalSuppressionPrompt(goal: Goal, consecutiveIdleTurns: num
  *
  * Returns the prompt string to be injected at the end of a turn.
  */
+/**
+ * Sanitize user-provided text for safe embedding in XML-style prompt tags.
+ * Strips angle brackets and XML-like tag sequences to prevent prompt injection.
+ */
+function sanitizePromptText(text: string): string {
+  return text
+    .replace(/</g, '[')
+    .replace(/>/g, ']')
+    .replace(/\[eval\]/gi, '(eval)')
+    .replace(/\[goal\]/gi, '(goal)')
+    .replace(/\[reflection\]/gi, '(reflection)')
+}
+
 export function buildGoalEvaluatorPrompt(goal: Goal): string {
-  const condition = goal.condition || goal.objective
+  const rawCondition = goal.condition || goal.objective
+  const condition = sanitizePromptText(rawCondition)
 
   const verificationCmds = goal.verification?.commands
   const verificationSection = verificationCmds?.length
@@ -190,11 +210,13 @@ If NO, list what still needs to be done.</eval>`
  * Enforces a structured workflow: research → plan → execute → verify
  */
 export function buildGoalInitialPrompt(objective: string, maxTurns: number, mode: 'objective' | 'condition' = 'objective', condition?: string): string {
-  const conditionSection = mode === 'condition' && condition
-    ? `\nCondition: ${condition}`
+  const safeObjective = sanitizePromptText(objective)
+  const safeCondition = condition ? sanitizePromptText(condition) : undefined
+  const conditionSection = mode === 'condition' && safeCondition
+    ? `\nCondition: ${safeCondition}`
     : ''
 
-  return `<goal>NEW GOAL: ${objective}${conditionSection} | Budget: ${maxTurns} turns
+  return `<goal>NEW GOAL: ${safeObjective}${conditionSection} | Budget: ${maxTurns} turns
 
 WORKFLOW (must follow in order):
 
@@ -216,7 +238,10 @@ WORKFLOW (must follow in order):
    - Use tools to implement each step
    - Invoke relevant skills via the Skill tool when they can help
    - Track progress: mark completed steps with [x]
-   - For independent steps, consider executing in parallel using multiple tool calls
+   - For INDEPENDENT parallel steps, use the Workflow tool to spawn parallel sub-agents:
+     * Call Workflow with task="<description>" and optional skill="<name>"
+     * Each sub-agent runs independently and results are collected automatically
+     * This is faster than executing steps sequentially
    - If a step fails, record the LESSON LEARNED and try an alternative approach
 
 4. LEARNING PHASE (after each failure):
@@ -242,8 +267,11 @@ WORKFLOW (must follow in order):
 
 IMPORTANT:
 - Do NOT ask the user for input - proceed autonomously
-- Do NOT wait for permission - execute the plan directly
+- Workspace edits are auto-approved; dangerous system ops (sudo, rm -rf /) are BLOCKED
+- A safety guardian monitors all tool calls — if blocked, find a safer alternative
+- Budget: ${maxTurns} turns max; use Workflow tool for parallel steps to save turns
 - If stuck, try alternative approaches rather than stopping
 - Learn from failures: record lessons to avoid repeating mistakes
-- If replanning is triggered, focus on critical items only</goal>`
+- If replanning is triggered, focus on critical items only
+- Use the Workflow tool for complex multi-step parallel tasks — spawn sub-agents to work concurrently</goal>`
 }

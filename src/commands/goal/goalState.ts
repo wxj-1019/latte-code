@@ -156,6 +156,14 @@ interface PersistedGoalState {
 
 const PERSISTENCE_KEY = 'goal_persistence'
 
+function getGoalPersistenceDir(path: typeof import('path'), os: typeof import('os')): string {
+  const configDir = process.env.LATTE_CONFIG_DIR || process.env.CLAUDE_CONFIG_DIR
+  if (configDir) {
+    return path.join(configDir, 'goal-persistence')
+  }
+  return path.join(os.homedir(), '.claude', 'goal-persistence')
+}
+
 async function persistGoalStateToDisk(): Promise<void> {
   try {
     const state: PersistedGoalState = {
@@ -168,7 +176,7 @@ async function persistGoalStateToDisk(): Promise<void> {
     const serialized = JSON.stringify(state)
     const { fs, path, os } = await getFsModules()
 
-    const persistDir = path.join(os.homedir(), '.claude', 'goal-persistence')
+    const persistDir = getGoalPersistenceDir(path, os)
     await fs.mkdir(persistDir, { recursive: true })
 
     const persistFile = path.join(persistDir, `${PERSISTENCE_KEY}.json`)
@@ -183,7 +191,7 @@ export async function loadGoalStateFromDisk(): Promise<boolean> {
   try {
     const { fs, path, os } = await getFsModules()
 
-    const persistFile = path.join(os.homedir(), '.claude', 'goal-persistence', `${PERSISTENCE_KEY}.json`)
+    const persistFile = path.join(getGoalPersistenceDir(path, os), `${PERSISTENCE_KEY}.json`)
     const data = await fs.readFile(persistFile, 'utf-8')
     const state: PersistedGoalState = JSON.parse(data)
 
@@ -223,7 +231,34 @@ export interface WebhookConfig {
 
 let webhookConfig: WebhookConfig | null = null
 
+function isValidWebhookUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url)
+    // Only allow https to prevent SSRF via file://, gopher://, etc.
+    if (parsed.protocol !== 'https:') return false
+    // Block loopback and private network addresses
+    const hostname = parsed.hostname.toLowerCase()
+    if (
+      hostname === 'localhost' ||
+      hostname === '127.0.0.1' ||
+      hostname === '0.0.0.0' ||
+      hostname === '[::1]' ||
+      hostname.startsWith('192.168.') ||
+      hostname.startsWith('10.') ||
+      hostname.startsWith('172.16.')
+    ) return false
+    return true
+  } catch {
+    return false
+  }
+}
+
 export function setWebhookConfig(config: WebhookConfig | null): void {
+  if (config && !isValidWebhookUrl(config.url)) {
+    throw new Error(
+      `Invalid webhook URL: ${config.url}. Only https:// URLs to public hosts are allowed.`,
+    )
+  }
   webhookConfig = config
 }
 
@@ -410,7 +445,12 @@ const REFLECTION_COOLDOWN_MS = parseEnvInt('GOAL_REFLECTION_COOLDOWN_MS', 2000)
 
 // Minimum and maximum allowed turns
 const MIN_TURNS = 1
-const MAX_TURNS = parseEnvInt('GOAL_MAX_TURNS_LIMIT', 200)
+const MAX_TURNS = parseEnvInt('GOAL_MAX_TURNS_LIMIT', 500)
+
+// Wall-clock timeout (minutes) — goal auto-terminates after this duration
+const MAX_DURATION_MINUTES = parseEnvInt('GOAL_MAX_DURATION_MINUTES', 0) // 0 = disabled
+// Token budget — goal auto-terminates when tokens exceed this limit
+const MAX_TOKEN_BUDGET = parseEnvInt('GOAL_MAX_TOKENS', 0) // 0 = disabled
 
 // Default reflection interval (configurable via env)
 const DEFAULT_REFLECTION_INTERVAL = parseEnvInt('GOAL_REFLECTION_INTERVAL', 5)
@@ -729,6 +769,91 @@ export function resetZeroToolCallCounter(): void {
   consecutiveZeroToolCalls = 0
 }
 
+/**
+ * Check if the goal has exceeded its wall-clock duration limit.
+ * Returns reason string if exceeded, null otherwise.
+ */
+export function checkGoalDuration(): string | null {
+  if (MAX_DURATION_MINUTES <= 0 || !currentGoal) return null
+  const elapsed = (Date.now() - currentGoal.startedAt) / 60000
+  if (elapsed >= MAX_DURATION_MINUTES) {
+    return `Duration limit exceeded: ${Math.ceil(elapsed)}min / ${MAX_DURATION_MINUTES}min`
+  }
+  return null
+}
+
+/**
+ * Check if the goal has exceeded its token budget.
+ * Returns reason string if exceeded, null otherwise.
+ */
+export function checkGoalTokenBudget(): string | null {
+  if (MAX_TOKEN_BUDGET <= 0 || !currentGoal) return null
+  if (currentGoal.tokensSpent >= MAX_TOKEN_BUDGET) {
+    return `Token budget exceeded: ${currentGoal.tokensSpent} / ${MAX_TOKEN_BUDGET}`
+  }
+  return null
+}
+
+/**
+ * Smart Approvals guardian check during goal execution.
+ * Evaluates tool operations for safety patterns during autonomous execution.
+ * Returns { block, warn, reason } — a post-execution feedback decision.
+ *
+ * Called from query.ts goal hooks to flag dangerous operations
+ * so the model can adapt its approach on the next turn.
+ */
+export function getGoalGuardianDecision(
+  toolName: string,
+  operationDescription: string,
+): { block: boolean; warn: boolean; reason: string } {
+  // Whitelist: always-safe tools during goal execution
+  const goalSafeTools = new Set([
+    'Read', 'Grep', 'Glob', 'WebSearch', 'WebFetch',
+    'TaskCreate', 'TaskUpdate', 'TaskList', 'TaskGet',
+    'LSP', 'ListMcpResources', 'TodoWrite',
+  ])
+
+  if (goalSafeTools.has(toolName)) {
+    return { block: false, warn: false, reason: 'safe tool' }
+  }
+
+  // Dangerous patterns that should be blocked during autonomous execution
+  const description = operationDescription.toLowerCase()
+  const dangerousPatterns: Array<[RegExp, string]> = [
+    [/rm\s+-rf\s+\//, 'filesystem destruction'],
+    [/sudo\b/, 'privilege escalation'],
+    [/>\s*\/dev\/(sda|nvme)/, 'raw device write'],
+    [/(curl|wget).*\|.*(ba)?sh/, 'pipe-to-shell'],
+    [/chmod\s+777/, 'insecure permissions'],
+    [/mkfs\./, 'filesystem formatting'],
+  ]
+
+  for (const [pattern, reason] of dangerousPatterns) {
+    if (pattern.test(description)) {
+      return {
+        block: true,
+        warn: false,
+        reason: `Auto-blocked: ${reason} — "${operationDescription.slice(0, 80)}"`,
+      }
+    }
+  }
+
+  // For Write/Edit outside workspace — warn but don't block
+  if ((toolName === 'Write' || toolName === 'Edit' || toolName === 'Bash') &&
+      (description.includes('/etc/') ||
+       description.includes('/usr/') ||
+       description.includes('/System/') ||
+       description.includes('/var/log'))) {
+    return {
+      block: false,
+      warn: true,
+      reason: `WARNING: Operation outside workspace — "${operationDescription.slice(0, 80)}"`,
+    }
+  }
+
+  return { block: false, warn: false, reason: 'allowed' }
+}
+
 function formatDuration(ms: number): string {
   const seconds = Math.floor(ms / 1000)
   const minutes = Math.floor(seconds / 60)
@@ -940,6 +1065,10 @@ export function recordReflection(reflection: string): void {
       currentGoal.reflections = []
     }
     currentGoal.reflections.push(`[Turn ${currentGoal.turnsUsed}] ${reflection}`)
+    // Keep bounded — max 50 reflections
+    if (currentGoal.reflections.length > 50) {
+      currentGoal.reflections = currentGoal.reflections.slice(-50)
+    }
     currentGoal.lastReflectionTurn = currentGoal.turnsUsed
     currentGoal.updatedAt = Date.now()
     updateReflectionTimestamp()
@@ -955,6 +1084,10 @@ export function recordStrategyChange(change: string): void {
       currentGoal.strategyChanges = []
     }
     currentGoal.strategyChanges.push(`[Turn ${currentGoal.turnsUsed}] ${change}`)
+    // Keep bounded — max 30 strategy changes
+    if (currentGoal.strategyChanges.length > 30) {
+      currentGoal.strategyChanges = currentGoal.strategyChanges.slice(-30)
+    }
     currentGoal.updatedAt = Date.now()
 
     // Enterprise: Add audit entry for strategy change
@@ -1200,6 +1333,10 @@ export function recordReplan(reason: string): void {
   currentGoal.lastReplanTurn = currentGoal.turnsUsed
   if (!currentGoal.replanTriggers) currentGoal.replanTriggers = []
   currentGoal.replanTriggers.push(`[Turn ${currentGoal.turnsUsed}] ${reason}`)
+  // Keep bounded — max 20 replan entries
+  if (currentGoal.replanTriggers.length > 20) {
+    currentGoal.replanTriggers = currentGoal.replanTriggers.slice(-20)
+  }
   currentGoal.updatedAt = Date.now()
   addAuditEntry('strategy_changed', { reason: 'replan', trigger: reason })
 }
@@ -1396,6 +1533,10 @@ export function recordCompact(summary: string): void {
       currentGoal.compactSummaries = []
     }
     currentGoal.compactSummaries.push(`[Turn ${currentGoal.turnsUsed}] ${summary}`)
+    // Keep bounded — max 20 compact entries
+    if (currentGoal.compactSummaries.length > 20) {
+      currentGoal.compactSummaries = currentGoal.compactSummaries.slice(-20)
+    }
     currentGoal.updatedAt = Date.now()
   }
 }

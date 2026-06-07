@@ -7,6 +7,9 @@ export default defineConfig({
     include: [
       'src/query/__tests__/**/*.test.ts',
       'src/commands/goal/__tests__/**/*.test.ts',
+      'src/services/workflow/__tests__/**/*.test.ts',
+      'src/utils/permissions/__tests__/**/*.test.ts',
+      'src/utils/sandbox/__tests__/**/*.test.ts',
     ],
     pool: 'forks',
   },

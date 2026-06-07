@@ -65,6 +65,9 @@ import {
   markCompletionSignalSent,
   recordToolCallPresence,
   shouldSuppressContinuation,
+  checkGoalDuration,
+  checkGoalTokenBudget,
+  getGoalGuardianDecision,
   updateEvaluatorReason,
   addTokensSpent,
   getConsecutiveZeroToolCalls,
@@ -335,20 +338,21 @@ async function* queryLoop(
 
   /** Extract concatenated text from all assistant text blocks (used for goal marker detection). */
   const extractAssistantText = (messages: AssistantMessage[]): string => {
-    let text = ''
+    const parts: string[] = []
     for (const m of messages) {
       if (typeof m.content === 'string') {
-        text += m.content
+        parts.push(m.content)
       } else if (Array.isArray(m.content)) {
         for (const c of m.content) {
-          if (typeof c === 'string') text += c
+          if (typeof c === 'string') parts.push(c)
           else if (c && typeof c === 'object' && c.type === 'text' && typeof c.text === 'string') {
-            text += c.text
+            parts.push(c.text)
           }
         }
       }
     }
-    return text
+    return parts.join('')
+  }
   }
 
   // Fired once per user turn — the prompt is invariant across loop iterations,
@@ -1431,6 +1435,36 @@ async function* queryLoop(
 
         recordToolCallPresence(false)
 
+        // Check duration and token budget before goal continuation
+        const durationReason = checkGoalDuration()
+        const tokenReason = checkGoalTokenBudget()
+        const resourceExhausted = durationReason || tokenReason
+        if (resourceExhausted) {
+          // Graceful termination: goal continues one more turn with budget limit prompt
+          markGoalBudgetLimited()
+          restoreOriginalPermissionMode(toolUseContext.setAppState.bind(toolUseContext))
+          const exhaustMsg = durationReason || tokenReason || 'Resource budget exhausted'
+          const limitPrompt = buildGoalBudgetLimitPrompt(goalOnEndTurn)
+          const resourceMsg = createUserMessage({
+            content: `${limitPrompt}\n\nReason: ${exhaustMsg}`,
+            isMeta: true,
+          })
+          const endTurnResource: State = {
+            messages: [...messagesForQuery, ...assistantMessages, resourceMsg],
+            toolUseContext,
+            autoCompactTracking: tracking,
+            turnCount: turnCount + 1,
+            maxOutputTokensRecoveryCount: 0,
+            hasAttemptedReactiveCompact: false,
+            pendingToolUseSummary: undefined,
+            maxOutputTokensOverride: undefined,
+            stopHookActive: undefined,
+            transition: { reason: 'goal_continuation' },
+          }
+          state = endTurnResource
+          continue
+        }
+
         if (isGoalActive()) {
           const assistantText = extractAssistantText(assistantMessages)
 
@@ -1442,6 +1476,26 @@ async function* queryLoop(
           } else if (goalOnEndTurn.turnsUsed >= goalOnEndTurn.maxTurns) {
             markGoalBudgetLimited()
             restoreOriginalPermissionMode(toolUseContext.setAppState.bind(toolUseContext))
+            // Inject budget limit prompt so the model provides a final summary
+            const budgetMessage = buildGoalBudgetLimitPrompt(goalOnEndTurn)
+            const budgetMsg = createUserMessage({
+              content: budgetMessage,
+              isMeta: true,
+            })
+            const endTurnBudget: State = {
+              messages: [...messagesForQuery, ...assistantMessages, budgetMsg],
+              toolUseContext,
+              autoCompactTracking: tracking,
+              turnCount: turnCount + 1,
+              maxOutputTokensRecoveryCount: 0,
+              hasAttemptedReactiveCompact: false,
+              pendingToolUseSummary: undefined,
+              maxOutputTokensOverride: undefined,
+              stopHookActive: undefined,
+              transition: { reason: 'goal_continuation' },
+            }
+            state = endTurnBudget
+            continue
           } else if (shouldSuppressContinuation()) {
             markGoalComplete()
             restoreOriginalPermissionMode(toolUseContext.setAppState.bind(toolUseContext))
@@ -1452,8 +1506,16 @@ async function* queryLoop(
               isMeta: true,
             })
 
+            // Inject evaluator for condition-mode goals (same as tool-execution path)
+            const evaluatorMsgs = isConditionMode()
+              ? [createUserMessage({
+                  content: buildGoalEvaluatorPrompt(goalOnEndTurn),
+                  isMeta: true,
+                })]
+              : []
+
             const endTurnNext: State = {
-              messages: [...messagesForQuery, ...assistantMessages, continuationMsg],
+              messages: [...messagesForQuery, ...assistantMessages, continuationMsg, ...evaluatorMsgs],
               toolUseContext,
               autoCompactTracking: tracking,
               turnCount: turnCount + 1,
@@ -1841,8 +1903,54 @@ async function* queryLoop(
       const hadToolCalls = toolUseBlocks.length > 0
       recordToolCallPresence(hadToolCalls)
 
-      if (isGoalActive()) {
-        // Check for auto-completion marker in assistant messages (text blocks only)
+      // Check duration and token budget before goal continuation
+      const durationReasonB = checkGoalDuration()
+      const tokenReasonB = checkGoalTokenBudget()
+
+      if (isGoalActive() && !durationReasonB && !tokenReasonB) {
+        // Smart Approvals guardian: check recent tool calls for safety
+        const blockedOps: string[] = []
+        const warnedOps: string[] = []
+        try {
+          for (const block of toolUseBlocks) {
+          if (block.name) {
+            // Extract operation description: file_path for Write/Edit, command for Bash, task for Agent
+            const opDesc = block.input?.command ||
+              (typeof block.input?.file_path === 'string' ? block.input.file_path : undefined) ||
+              block.input?.task ||
+              block.input?.description
+            if (opDesc && typeof opDesc === 'string') {
+              const decision = getGoalGuardianDecision(block.name, opDesc)
+              if (decision.block) {
+                blockedOps.push(decision.reason)
+              } else if (decision.warn) {
+                warnedOps.push(decision.reason)
+              }
+            }
+            }
+          }
+        }
+        // Inject guardian messages with clear blocked/warned distinction
+        const guardianMessages: string[] = []
+        if (blockedOps.length > 0) {
+          guardianMessages.push(`BLOCKED:\n${blockedOps.join('\n')}\nDo NOT retry — find a completely different approach.`)
+        }
+        if (warnedOps.length > 0) {
+          guardianMessages.push(`WARNINGS:\n${warnedOps.join('\n')}\nProceed with caution or find a safer alternative.`)
+        }
+        if (guardianMessages.length > 0) {
+          toolResults.push(
+            createUserMessage({
+              content: `[GOAL SAFETY GUARDIAN]\n${guardianMessages.join('\n\n')}`,
+              isMeta: true,
+            }),
+          )
+        }
+        } catch {
+          // Guardian failure should not block goal execution
+        }
+
+        // Check for auto-completion marker
         const assistantText = extractAssistantText(assistantMessages)
 
         if (assistantText.includes('[GOAL_COMPLETED]')) {
