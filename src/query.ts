@@ -1,4 +1,4 @@
-// biome-ignore-all assist/source/organizeImports: ANT-ONLY import markers must not be reordered
+﻿// biome-ignore-all assist/source/organizeImports: ANT-ONLY import markers must not be reordered
 import type {
   ToolResultBlockParam,
   ToolUseBlock,
@@ -75,6 +75,10 @@ import {
   setOriginalPermissionMode,
   restoreOriginalPermissionMode,
   recordCompact,
+  getReadySubtasks,
+  updateSubtaskStatus,
+  recordEpisode,
+  getSubtaskProgress,
 } from './commands/goal/goalState.js'
 import {
   buildGoalBudgetLimitPrompt,
@@ -82,6 +86,7 @@ import {
   buildGoalSuppressionPrompt,
   buildGoalEvaluatorPrompt,
 } from './commands/goal/goalPrompts.js'
+import { executeWorkflow, type WorkflowResult } from './services/workflow/engine.js'
 import { prependUserContext, appendSystemContext } from './utils/api.js'
 import {
   createAttachmentMessage,
@@ -352,7 +357,6 @@ async function* queryLoop(
       }
     }
     return parts.join('')
-  }
   }
 
   // Fired once per user turn — the prompt is invariant across loop iterations,
@@ -1929,23 +1933,22 @@ async function* queryLoop(
             }
             }
           }
-        }
-        // Inject guardian messages with clear blocked/warned distinction
-        const guardianMessages: string[] = []
-        if (blockedOps.length > 0) {
-          guardianMessages.push(`BLOCKED:\n${blockedOps.join('\n')}\nDo NOT retry — find a completely different approach.`)
-        }
-        if (warnedOps.length > 0) {
-          guardianMessages.push(`WARNINGS:\n${warnedOps.join('\n')}\nProceed with caution or find a safer alternative.`)
-        }
-        if (guardianMessages.length > 0) {
-          toolResults.push(
-            createUserMessage({
-              content: `[GOAL SAFETY GUARDIAN]\n${guardianMessages.join('\n\n')}`,
-              isMeta: true,
-            }),
-          )
-        }
+          // Inject guardian messages with clear blocked/warned distinction
+          const guardianMessages: string[] = []
+          if (blockedOps.length > 0) {
+            guardianMessages.push(`BLOCKED:\n${blockedOps.join('\n')}\nDo NOT retry — find a completely different approach.`)
+          }
+          if (warnedOps.length > 0) {
+            guardianMessages.push(`WARNINGS:\n${warnedOps.join('\n')}\nProceed with caution or find a safer alternative.`)
+          }
+          if (guardianMessages.length > 0) {
+            toolResults.push(
+              createUserMessage({
+                content: `[GOAL SAFETY GUARDIAN]\n${guardianMessages.join('\n\n')}`,
+                isMeta: true,
+              }),
+            )
+          }
         } catch {
           // Guardian failure should not block goal execution
         }
@@ -1980,6 +1983,85 @@ async function* queryLoop(
             createUserMessage({ content: suppressionMessage, isMeta: true }),
           )
         } else {
+          // ── Goal→Workflow auto-dispatch ──────────────────────────────
+          // When the goal has multiple parallel-ready subtasks AND enough
+          // remaining budget, execute them through the workflow engine.
+          const remainingTurns = goal.maxTurns - goal.turnsUsed
+          const readySubtasks = getReadySubtasks()
+          const parallelTasks = readySubtasks.filter(s => s.canParallel)
+
+          // Only dispatch when: ≥2 parallel tasks AND ≥3 remaining turns
+          // (need 1 turn for workflow results + 1 for continuation + 1 buffer)
+          if (parallelTasks.length >= 2 && remainingTurns >= 3) {
+            try {
+              const workflowSubtasks = parallelTasks.map((s, i) => ({
+                name: `goal-agent-${i + 1}`,
+                task: s.description,
+              }))
+
+              // Compute subtask indices once (avoid repeated getGoal calls)
+              const currentGoal = getGoal()
+              const subtaskIndices = parallelTasks.map(s =>
+                currentGoal?.subtasks?.findIndex(st => st.id === s.id) ?? -1
+              )
+
+              // Mark subtasks as in_progress before dispatching
+              for (const idx of subtaskIndices) {
+                if (idx >= 0) updateSubtaskStatus(idx, 'in_progress')
+              }
+
+              const wfResult: WorkflowResult = await executeWorkflow(
+                {
+                  task: goal.objective,
+                  workDir: toolUseContext.getAppState().getCwd(),
+                  toolUseContext,
+                },
+                workflowSubtasks,
+              )
+
+              // Write results back to subtask state and record episodes
+              if (wfResult.agentResults) {
+                for (let i = 0; i < parallelTasks.length; i++) {
+                  const idx = subtaskIndices[i]
+                  if (idx < 0) continue
+                  const agentResult = wfResult.agentResults[i]
+                  if (agentResult && agentResult.success) {
+                    updateSubtaskStatus(idx, 'completed', agentResult.output)
+                  } else {
+                    updateSubtaskStatus(idx, 'failed', agentResult?.output ?? 'unknown error')
+                    recordEpisode({
+                      turn: goal.turnsUsed,
+                      stepIndex: idx,
+                      action: parallelTasks[i].description,
+                      outcome: 'failure',
+                      error: agentResult?.output,
+                      reflection: 'Workflow sub-agent failed',
+                      lesson: 'Consider executing this subtask sequentially instead of in parallel',
+                    })
+                  }
+                }
+              }
+
+              // Inject workflow results as a message
+              const workflowSummary =
+                `[WORKFLOW RESULTS] ${wfResult.agentsUsed} sub-agents executed.\n` +
+                wfResult.finalAnswer +
+                `\n\nSubtask progress:\n${getSubtaskProgress() ?? 'N/A'}`
+              toolResults.push(
+                createUserMessage({ content: workflowSummary, isMeta: true }),
+              )
+            } catch (wfErr) {
+              // Workflow failure should not block goal continuation
+              const wfMsg = wfErr instanceof Error ? wfErr.message : String(wfErr)
+              toolResults.push(
+                createUserMessage({
+                  content: `[WORKFLOW ERROR] Parallel execution failed: ${wfMsg}. Continuing sequentially.`,
+                  isMeta: true,
+                }),
+              )
+            }
+          }
+
           // Inject goal continuation prompt
           const continuationPrompt = buildGoalContinuationPrompt(goal)
           toolResults.push(
@@ -2013,3 +2095,4 @@ async function* queryLoop(
     state = next
   } // while (true)
 }
+

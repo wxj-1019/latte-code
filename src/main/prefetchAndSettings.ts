@@ -106,7 +106,7 @@ export function startDeferredPrefetches(): void {
 
   // Event loop stall detector — logs when the main thread is blocked >500ms
   if ("external" === 'ant') {
-    void import('./utils/eventLoopStallDetector.js').then(m => m.startEventLoopStallDetector());
+    void import('../utils/eventLoopStallDetector.js').then(m => m.startEventLoopStallDetector());
   }
 }
 

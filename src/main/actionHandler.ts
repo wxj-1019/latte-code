@@ -753,10 +753,10 @@ export async function runAction(prompt: string | undefined, options: Record<stri
     const {
       BRIEF_TOOL_NAME,
       LEGACY_BRIEF_TOOL_NAME
-    } = require('./tools/BriefTool/prompt.js') as typeof import('./tools/BriefTool/prompt.js');
+    } = require('../tools/BriefTool/prompt.js') as typeof import('../tools/BriefTool/prompt.js');
     const {
       isBriefEntitled
-    } = require('./tools/BriefTool/BriefTool.js') as typeof import('./tools/BriefTool/BriefTool.js');
+    } = require('../tools/BriefTool/BriefTool.js') as typeof import('../tools/BriefTool/BriefTool.js');
     /* eslint-enable @typescript-eslint/no-require-imports */
     const parsed = parseToolListFromCLI(baseTools);
     if ((parsed.includes(BRIEF_TOOL_NAME) || parsed.includes(LEGACY_BRIEF_TOOL_NAME)) && isBriefEntitled()) {
@@ -895,7 +895,7 @@ export async function runAction(prompt: string | undefined, options: Record<stri
   if (feature('COORDINATOR_MODE') && isEnvTruthy(process.env.CLAUDE_CODE_COORDINATOR_MODE)) {
     const {
       applyCoordinatorToolFilter
-    } = await import('./utils/toolPool.js');
+    } = await import('../utils/toolPool.js');
     tools = applyCoordinatorToolFilter(tools);
   }
   profileCheckpoint('action_tools_loaded');
@@ -929,7 +929,7 @@ export async function runAction(prompt: string | undefined, options: Record<stri
   const setupStart = Date.now();
   const {
     setup
-  } = await import('./setup.js');
+  } = await import('../setup.js');
   const messagingSocketPath = feature('UDS_INBOX') ? (options as {
     messagingSocketPath?: string;
   }).messagingSocketPath : undefined;
@@ -1208,7 +1208,7 @@ export async function runAction(prompt: string | undefined, options: Record<stri
     /* eslint-disable @typescript-eslint/no-require-imports */
     const {
       isBriefEntitled
-    } = require('./tools/BriefTool/BriefTool.js') as typeof import('./tools/BriefTool/BriefTool.js');
+    } = require('../tools/BriefTool/BriefTool.js') as typeof import('../tools/BriefTool/BriefTool.js');
     /* eslint-enable @typescript-eslint/no-require-imports */
     if (isBriefEntitled()) {
       setUserMsgOptIn(true);
@@ -1221,7 +1221,7 @@ export async function runAction(prompt: string | undefined, options: Record<stri
     proactive?: boolean;
   }).proactive || isEnvTruthy(process.env.CLAUDE_CODE_PROACTIVE)) && !coordinatorModeModule?.isCoordinatorMode()) {
     /* eslint-disable @typescript-eslint/no-require-imports */
-    const briefVisibility = feature('KAIROS') || feature('KAIROS_BRIEF') ? (require('./tools/BriefTool/BriefTool.js') as typeof import('./tools/BriefTool/BriefTool.js')).isBriefEnabled() ? 'Call SendUserMessage at checkpoints to mark where things stand.' : 'The user will see any text you output.' : 'The user will see any text you output.';
+    const briefVisibility = feature('KAIROS') || feature('KAIROS_BRIEF') ? (require('../tools/BriefTool/BriefTool.js') as typeof import('../tools/BriefTool/BriefTool.js')).isBriefEnabled() ? 'Call SendUserMessage at checkpoints to mark where things stand.' : 'The user will see any text you output.' : 'The user will see any text you output.';
     /* eslint-enable @typescript-eslint/no-require-imports */
     const proactivePrompt = `\n# Proactive Mode\n\nYou are in proactive mode. Take initiative — explore, act, and make progress without waiting for instructions.\n\nStart by briefly greeting the user.\n\nYou will receive periodic <tick> prompts. These are check-ins. Do whatever seems most useful, or call Sleep if there's nothing to do. ${briefVisibility}`;
     appendSystemPrompt = appendSystemPrompt ? `${appendSystemPrompt}\n\n${proactivePrompt}` : proactivePrompt;
@@ -1248,7 +1248,7 @@ export async function runAction(prompt: string | undefined, options: Record<stri
     }
     const {
       createRoot
-    } = await import('./ink.js');
+    } = await import('../ink.js');
     root = await createRoot(ctx.renderOptions);
 
     // Log startup time now, before any blocking dialog renders. Logging
@@ -1269,7 +1269,7 @@ export async function runAction(prompt: string | undefined, options: Record<stri
     if (feature('BRIDGE_MODE') && remoteControlOption !== undefined) {
       const {
         getBridgeDisabledReason
-      } = await import('./bridge/bridgeEnabled.js');
+      } = await import('../bridge/bridgeEnabled.js');
       const disabledReason = await getBridgeDisabledReason();
       remoteControl = disabledReason === null;
       if (disabledReason) {
@@ -1288,7 +1288,7 @@ export async function runAction(prompt: string | undefined, options: Record<stri
       if (choice === 'merge') {
         const {
           buildMergePrompt
-        } = await import('./components/agents/SnapshotUpdateDialog.js');
+        } = await import('../components/agents/SnapshotUpdateDialog.js');
         const mergePrompt = buildMergePrompt(agentDef.agentType, agentDef.memory!);
         inputPrompt = inputPrompt ? `${mergePrompt}\n\n${inputPrompt}` : mergePrompt;
       }
@@ -1313,7 +1313,7 @@ export async function runAction(prompt: string | undefined, options: Record<stri
       // — enrollTrustedDevice() via checkGate_CACHED_OR_BLOCKING (awaits
       // the GrowthBook reinit above), clearTrustedDeviceToken() via the
       // sync cached check (acceptable since clear is idempotent).
-      void import('./bridge/trustedDevice.js').then(m => {
+      void import('../bridge/trustedDevice.js').then(m => {
         m.clearTrustedDeviceToken();
         return m.enrollTrustedDevice();
       });
@@ -1838,9 +1838,9 @@ export async function runAction(prompt: string | undefined, options: Record<stri
     // that scripted calls don't need — the next interactive session reconciles.
     if (!isBareMode()) {
       startDeferredPrefetches();
-      void import('./utils/backgroundHousekeeping.js').then(m => m.startBackgroundHousekeeping());
+      void import('../utils/backgroundHousekeeping.js').then(m => m.startBackgroundHousekeeping());
       if ("external" === 'ant') {
-        void import('./utils/sdkHeapDumpMonitor.js').then(m => m.startSdkMemoryMonitor());
+        void import('../utils/sdkHeapDumpMonitor.js').then(m => m.startSdkMemoryMonitor());
       }
     }
     logSessionTelemetry();
@@ -1942,7 +1942,7 @@ export async function runAction(prompt: string | undefined, options: Record<stri
     /* eslint-disable @typescript-eslint/no-require-imports */
     const {
       isCcrMirrorEnabled
-    } = require('./bridge/bridgeEnabled.js') as typeof import('./bridge/bridgeEnabled.js');
+    } = require('../bridge/bridgeEnabled.js') as typeof import('../bridge/bridgeEnabled.js');
     /* eslint-enable @typescript-eslint/no-require-imports */
     ccrMirrorEnabled = isCcrMirrorEnabled();
   }
@@ -2084,7 +2084,7 @@ export async function runAction(prompt: string | undefined, options: Record<stri
   //   - Runtime: uploader checks github.com/anthropics/* remote + gcloud auth.
   //   - Safety: CLAUDE_CODE_DISABLE_SESSION_DATA_UPLOAD=1 bypasses (tests set this).
   // Import is dynamic + async to avoid adding startup latency.
-  const sessionUploaderPromise = "external" === 'ant' ? import('./utils/sessionDataUploader.js') : null;
+  const sessionUploaderPromise = "external" === 'ant' ? import('../utils/sessionDataUploader.js') : null;
 
   // Defer session uploader resolution to the onTurnComplete callback to avoid
   // adding a new top-level await in main.tsx (performance-critical path).
@@ -2130,7 +2130,7 @@ export async function runAction(prompt: string | undefined, options: Record<stri
       // Clear stale caches before resuming to ensure fresh file/skill discovery
       const {
         clearSessionCaches
-      } = await import('./commands/clear/caches.js');
+      } = await import('../commands/clear/caches.js');
       clearSessionCaches();
       const result = await loadConversationForResume(undefined /* sessionId */, undefined /* sourceFile */);
       if (!result) {
@@ -2223,7 +2223,7 @@ export async function runAction(prompt: string | undefined, options: Record<stri
       createSSHSession,
       createLocalSSHSession,
       SSHSessionError
-    } = await import('./ssh/createSSHSession.js');
+    } = await import('../ssh/createSSHSession.js');
     let sshSession;
     try {
       if (_pendingSSH.local) {
@@ -2286,7 +2286,7 @@ export async function runAction(prompt: string | undefined, options: Record<stri
     // loaded by useAssistantHistory on scroll-up (no blocking fetch here).
     const {
       discoverAssistantSessions
-    } = await import('./assistant/sessionDiscovery.js');
+    } = await import('../assistant/sessionDiscovery.js');
     let targetSessionId = _pendingAssistantChat.sessionId;
 
     // Discovery flow — list bridge environments, filter sessions
@@ -2334,7 +2334,7 @@ export async function runAction(prompt: string | undefined, options: Record<stri
     const {
       checkAndRefreshOAuthTokenIfNeeded,
       getClaudeAIOAuthTokens
-    } = await import('./utils/auth.js');
+    } = await import('../utils/auth.js');
     await checkAndRefreshOAuthTokenIfNeeded();
     let apiCreds;
     try {
@@ -2381,7 +2381,7 @@ export async function runAction(prompt: string | undefined, options: Record<stri
     // Clear stale caches before resuming to ensure fresh file/skill discovery
     const {
       clearSessionCaches
-    } = await import('./commands/clear/caches.js');
+    } = await import('../commands/clear/caches.js');
     clearSessionCaches();
     let messages: MessageType[] | null = null;
     let processedResume: ProcessedResume | undefined = undefined;
@@ -2485,7 +2485,7 @@ export async function runAction(prompt: string | undefined, options: Record<stri
       // Create remote session config for the REPL
       const {
         getClaudeAIOAuthTokens: getTokensForRemote
-      } = await import('./utils/auth.js');
+      } = await import('../utils/auth.js');
       const getAccessTokenForRemote = (): string => getTokensForRemote()?.accessToken ?? apiCreds.accessToken;
       const remoteSessionConfig = createRemoteSessionConfig(createdSession.id, getAccessTokenForRemote, apiCreds.orgUUID, hasInitialPrompt);
 
@@ -2583,7 +2583,7 @@ export async function runAction(prompt: string | undefined, options: Record<stri
           // Use progress UI for teleport
           const {
             teleportWithProgress
-          } = await import('./components/TeleportProgress.js');
+          } = await import('../components/TeleportProgress.js');
           const result = await teleportWithProgress(root, teleport);
           // Track teleported session for reliability logging
           setTeleportedSessionInfo({
@@ -2607,7 +2607,7 @@ export async function runAction(prompt: string | undefined, options: Record<stri
         const {
           parseCcshareId,
           loadCcshare
-        } = await import('./utils/ccshareResume.js');
+        } = await import('../utils/ccshareResume.js');
         const ccshareId = parseCcshareId(options.resume);
         if (ccshareId) {
           try {

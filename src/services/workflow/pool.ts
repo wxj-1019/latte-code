@@ -10,6 +10,9 @@
  */
 
 import { logForDebugging } from '../../utils/debug.js'
+import type { ToolUseContext } from '../../Tool.js'
+import { spawnTeammate } from '../../tools/shared/spawnMultiAgent.js'
+import { onWorkflowExecuted } from './nudgeIntegration.js'
 
 // ═════════════════════════════════════════
 // Types
@@ -32,6 +35,8 @@ export interface AgentResult {
   agentName: string
   task: string
   output: string
+  /** Whether the agent completed successfully (false = fallback or spawn failure) */
+  success: boolean
 }
 
 export interface PoolConfig {
@@ -58,6 +63,18 @@ let totalSpawned = 0
 const queue: QueuedTask[] = []
 const activePromises: Set<Promise<AgentResult>> = new Set()
 
+// Optional ToolUseContext — set once when a workflow session starts.
+// Required for real agent spawning via spawnTeammate.
+let _toolUseContext: ToolUseContext | null = null
+
+/**
+ * Bind a ToolUseContext to the pool for agent spawning.
+ * Called before any workflow execution that needs real sub-agents.
+ */
+export function bindToolUseContext(ctx: ToolUseContext): void {
+  _toolUseContext = ctx
+}
+
 /**
  * Reset pool state. Called at session start.
  */
@@ -67,6 +84,7 @@ export function resetPool(): void {
   totalSpawned = 0
   queue.length = 0
   activePromises.clear()
+  _toolUseContext = null
 }
 
 /**
@@ -125,32 +143,33 @@ export async function spawnPoolAgent(
  * Uses Promise-based waiting instead of polling.
  */
 export async function waitAllPoolAgents(): Promise<AgentResult[]> {
-  const results: AgentResult[] = []
-
-  // Process queue items sequentially
-  while (queue.length > 0) {
-    const next = queue.shift()
-    if (next) {
-      try {
-        const result = await executeAgent(next.agent)
-        results.push(result)
-        next.resolve(result)
-      } catch (err) {
-        next.reject(
-          err instanceof Error ? err : new Error(String(err)),
-        )
-      }
-    }
+  // Kick-start: fire initial batch from queue up to concurrency limit.
+  // After this, drainNext() keeps the pool self-draining as agents complete.
+  while (queue.length > 0 && activeCount < DEFAULT_CONFIG.maxConcurrent) {
+    drainNext()
   }
 
-  // Wait for all remaining active agents
-  if (activePromises.size > 0) {
-    const activeResults = await Promise.allSettled(activePromises)
-    for (const res of activeResults) {
-      if (res.status === 'fulfilled') {
-        results.push(res.value)
+  // Poll until nothing is left running or queued.
+  // drainNext() is called from executeAgent completion, so the queue
+  // will empty naturally. We just need to wait for activePromises.
+  const results: AgentResult[] = []
+  const seen = new Set<Promise<AgentResult>>()
+  let safety = 0
+
+  while ((activeCount > 0 || queue.length > 0) && safety++ < 200) {
+    // Take a snapshot of currently active promises
+    const snapshot = Array.from(activePromises).filter(p => !seen.has(p))
+    for (const p of snapshot) seen.add(p)
+
+    if (snapshot.length > 0) {
+      const settled = await Promise.allSettled(snapshot)
+      for (const r of settled) {
+        if (r.status === 'fulfilled') results.push(r.value)
       }
     }
+
+    // Brief yield to let drainNext pick up queued items after agents complete
+    await new Promise(r => setTimeout(r, 5))
   }
 
   return results
@@ -170,7 +189,8 @@ async function executeAgent(agent: PoolAgentTask): Promise<AgentResult> {
     (output): AgentResult => ({
       agentName: agent.name,
       task: agent.task,
-      output,
+      output: output.output,
+      success: output.success,
     }),
   )
   activePromises.add(promise)
@@ -179,28 +199,75 @@ async function executeAgent(agent: PoolAgentTask): Promise<AgentResult> {
     const result = await promise
     activeCount--
     activePromises.delete(promise)
-    totalSpawned = Math.max(0, totalSpawned - 1)
     logForDebugging(
       `[workflow-pool] Agent "${agent.name}" completed (active: ${activeCount})`,
     )
+    // Self-drain: start the next queued agent if any
+    drainNext()
     return result
   } catch (err) {
     activeCount--
     activePromises.delete(promise)
-    totalSpawned = Math.max(0, totalSpawned - 1)
+    // Self-drain even on failure to prevent queue starvation
+    drainNext()
     throw err
   }
 }
 
 /**
+ * Drain one queued agent. Called automatically after each agent completes
+ * to keep the pool self-draining without requiring external waitAll calls.
+ */
+function drainNext(): void {
+  if (queue.length === 0) return
+  // Respect concurrency limit — drainNext is called from executeAgent
+  // which already decremented activeCount, so we're always under the limit here
+  const next = queue.shift()
+  if (!next) return
+
+  executeAgent(next.agent).then(
+    result => next.resolve(result),
+    err => next.reject(err instanceof Error ? err : new Error(String(err))),
+  )
+}
+
+/**
  * Run a single workflow sub-agent.
  *
- * Phase 1 (P0): Uses a structured description-based approach.
- * This will be replaced with actual AgentTool/spawnMultiAgent integration
- * when the Tool is wired into the full query loop.
+ * Uses spawnTeammate when a ToolUseContext is bound,
+ * falls back to a structured placeholder otherwise.
  */
-async function runWorkflowAgent(agent: PoolAgentTask): Promise<string> {
-  // Placeholder: In production, this calls spawnMultiAgent with the agent's task.
-  // For P0, we return a structured description that the main LLM can process.
-  return `[Agent: ${agent.name}] Task: ${agent.task}\nResult: Executed successfully in workflow pool.`
+async function runWorkflowAgent(agent: PoolAgentTask): Promise<{ output: string; success: boolean }> {
+  if (_toolUseContext) {
+    try {
+      const result = await spawnTeammate(
+        {
+          name: agent.name,
+          prompt: agent.task,
+          description: agent.description ?? agent.task,
+        },
+        _toolUseContext,
+      )
+      const output = result.data
+      const summary = `Agent "${output.name}" spawned (id: ${output.agent_id})`
+
+      // Notify nudge integration
+      onWorkflowExecuted(agent.name, 1)
+
+      logForDebugging(
+        `[workflow-pool] Agent "${agent.name}" spawned via spawnTeammate: ${output.agent_id}`,
+      )
+      return { output: summary, success: true }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      logForDebugging(`[workflow-pool] Agent "${agent.name}" spawn failed: ${msg}`)
+      return { output: `Agent "${agent.name}" spawn failed: ${msg}`, success: false }
+    }
+  }
+
+  // Fallback: structured description for the main LLM to process
+  return {
+    output: `[Agent: ${agent.name}] Task: ${agent.task}\nResult: Executed successfully in workflow pool.`,
+    success: false,
+  }
 }

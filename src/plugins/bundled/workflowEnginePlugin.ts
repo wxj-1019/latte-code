@@ -17,5 +17,5 @@ export const workflowEnginePlugin: BuiltinPluginDefinition = {
     'Supports 16 concurrent agents with checkpoint recovery.',
   version: '1.0.0',
   defaultEnabled: false,
-  isAvailable: () => feature('WORKFLOW_SCRIPTS'),
+  isAvailable: () => feature('WORKFLOW_SCRIPTS') ? true : false,
 }

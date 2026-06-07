@@ -108,6 +108,7 @@ export const WorkflowTool = buildTool({
       task,
       skill,
       workDir,
+      toolUseContext,
     })
 
     return {

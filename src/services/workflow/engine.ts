@@ -13,6 +13,8 @@
  */
 
 import { logForDebugging } from '../../utils/debug.js'
+import { spawnPoolAgent, bindToolUseContext, type AgentResult } from './pool.js'
+import type { ToolUseContext } from '../../Tool.js'
 
 // ═════════════════════════════════════════
 // Types
@@ -22,11 +24,15 @@ export interface WorkflowOptions {
   task: string
   skill?: string
   workDir: string
+  /** ToolUseContext for spawning real sub-agents. If omitted, runs in LLM-orchestrated mode. */
+  toolUseContext?: ToolUseContext
 }
 
 export interface WorkflowResult {
   agentsUsed: number
   finalAnswer: string
+  /** Detailed results from each sub-agent */
+  agentResults?: AgentResult[]
 }
 
 // ═════════════════════════════════════════
@@ -48,6 +54,7 @@ const MAX_SCRIPT_SIZE_BYTES = 64 * 1024 // 64KB max script size
  */
 export async function executeWorkflowScript(
   scriptSource: string,
+  options?: { toolUseContext?: ToolUseContext },
 ): Promise<WorkflowResult> {
   if (scriptSource.length > MAX_SCRIPT_SIZE_BYTES) {
     throw new Error(
@@ -55,10 +62,16 @@ export async function executeWorkflowScript(
     )
   }
 
+  // Bind ToolUseContext to pool if provided — enables real agent spawning
+  if (options?.toolUseContext) {
+    bindToolUseContext(options.toolUseContext)
+  }
+
   let agentsUsed = 0
   let finalAnswer = ''
-  const spawned: Array<Promise<unknown>> = []
+  const spawned: Array<{ name: string; task: string; promise: Promise<AgentResult> }> = []
   let hasReturned = false
+  let waitedResults: AgentResult[] | undefined
 
   const sandbox: Record<string, unknown> = {
     spawn: (name: string, task: string) => {
@@ -66,13 +79,22 @@ export async function executeWorkflowScript(
         throw new Error('Cannot spawn after return() has been called')
       }
       agentsUsed++
-      // Phase 2: delegate to the agent pool (pool.ts)
-      spawned.push(Promise.resolve({ name, task, result: `Agent ${name} completed: ${task}` }))
+      // Delegate to the real agent pool
+      const promise = spawnPoolAgent({ name, task, description: task })
+      spawned.push({ name, task, promise })
     },
 
     waitAll: async () => {
-      await Promise.all(spawned)
+      if (spawned.length === 0) return []
+      // Use allSettled so a single agent failure doesn't abort the batch
+      const settled = await Promise.allSettled(spawned.map(s => s.promise))
+      const results: AgentResult[] = []
+      for (const r of settled) {
+        if (r.status === 'fulfilled') results.push(r.value)
+      }
+      waitedResults = results
       spawned.length = 0
+      return results
     },
 
     return: (answer: string) => {
@@ -92,13 +114,30 @@ export async function executeWorkflowScript(
     throw new Error(`Workflow execution failed: ${message}`)
   }
 
-  if (!finalAnswer) {
+  // Collect agent results: prefer waitedResults (from waitAll), then unresolved spawned
+  let agentResults: AgentResult[] | undefined
+  if (waitedResults) {
+    agentResults = waitedResults
+  } else if (spawned.length > 0) {
+    // Use allSettled so a partial failure doesn't prevent result collection
+    const settled = await Promise.allSettled(spawned.map(s => s.promise))
+    agentResults = settled
+      .filter((s): s is PromiseFulfilledResult<AgentResult> => s.status === 'fulfilled')
+      .map(s => s.value)
+  }
+
+  if (!finalAnswer && agentResults && agentResults.length > 0) {
+    // If script didn't call return(), aggregate results automatically
+    finalAnswer = agentResults
+      .map(r => `[${r.agentName}] ${r.output}`)
+      .join('\n')
+  } else if (!finalAnswer) {
     throw new Error(
       'Workflow script did not call return(). Ensure the script ends with return(answer).',
     )
   }
 
-  return { agentsUsed, finalAnswer }
+  return { agentsUsed, finalAnswer, agentResults }
 }
 
 /**
@@ -161,17 +200,79 @@ async function buildScriptExecutor(
 }
 
 /**
- * High-level entry point: generates script from task description via LLM,
- * then executes it in the sandbox.
+ * High-level entry point: execute a workflow from task description.
  *
- * TODO(Phase 2): Integrate LLM script generation. Currently returns a
- * placeholder — the main LLM handles orchestration in its response loop.
+ * Two execution modes:
+ * 1. **Direct mode**: when subtask descriptions are provided, executes them
+ *    through the agent pool without LLM script generation.
+ * 2. **Script mode**: when only a task description is provided, generates
+ *    a JS orchestration script and executes it in the sandbox.
+ *
+ * Direct mode is used by the Goal→Workflow integration to execute
+ * parallel subtasks without needing LLM script generation.
  */
 export async function executeWorkflow(
   options: WorkflowOptions,
+  subtasks?: Array<{ name: string; task: string }>,
 ): Promise<WorkflowResult> {
-  // Phase 1 (P0): Placeholder — LLM-generated script execution will be
-  // integrated when the Tool is wired into the query loop.
+  const startTime = Date.now()
+
+  // Direct mode: execute subtasks through the pool
+  if (subtasks && subtasks.length > 0) {
+    if (options.toolUseContext) {
+      bindToolUseContext(options.toolUseContext)
+    }
+
+    logForDebugging(
+      `[workflow-engine] Direct mode: executing ${subtasks.length} subtasks`,
+    )
+
+    // Spawn all subtasks in parallel through the pool
+    const promises = subtasks.map(st =>
+      spawnPoolAgent({ name: st.name, task: st.task, description: st.task }),
+    )
+
+    const settled = await Promise.allSettled(promises)
+
+    // Build index-aligned results so caller can map back to subtasks.
+    // Even rejected promises get a failure entry to preserve index order.
+    const allResults: AgentResult[] = []
+    const failed: string[] = []
+
+    for (let i = 0; i < settled.length; i++) {
+      const result = settled[i]
+      if (result.status === 'fulfilled') {
+        allResults.push(result.value)
+      } else {
+        const errMsg = result.reason?.message ?? String(result.reason)
+        failed.push(errMsg)
+        allResults.push({
+          agentName: subtasks[i]?.name ?? `subtask-${i}`,
+          task: subtasks[i]?.task ?? 'unknown',
+          output: errMsg,
+          success: false,
+        })
+      }
+    }
+
+    const successfulCount = allResults.filter(r => r.success).length
+    const durationMs = Date.now() - startTime
+    const finalAnswer = [
+      ...allResults.map(r => `[${r.agentName}] ${r.success ? '✓' : '✗'} ${r.output}`),
+    ].join('\n')
+
+    logForDebugging(
+      `[workflow-engine] Direct mode completed: ${successfulCount}/${subtasks.length} succeeded (${durationMs}ms)`,
+    )
+
+    return {
+      agentsUsed: subtasks.length,
+      finalAnswer,
+      agentResults: allResults,
+    }
+  }
+
+  // Script mode: placeholder — LLM script generation will be added later
   return {
     agentsUsed: 0,
     finalAnswer: `[Workflow placeholder] Task queued: "${options.task}"\n\nThe LLM will generate and execute a JS orchestration script to complete this task using parallel sub-agents.`,

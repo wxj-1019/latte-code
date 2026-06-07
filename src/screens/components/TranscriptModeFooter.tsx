@@ -1,6 +1,6 @@
 import { c as _c } from 'react/compiler-runtime';
 import { Box, Text } from '../../ink.js';
-import { useShortcutDisplay } from '../../hooks/useShortcutDisplay.js';
+import { useShortcutDisplay } from '../../keybindings/useShortcutDisplay.js';
 import figures from 'figures';
 import React from 'react';
 

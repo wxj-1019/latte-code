@@ -13,7 +13,7 @@ program.command('setup-token').description('Set up a long-lived authentication t
     setupTokenHandler
   }, {
     createRoot
-  }] = await Promise.all([import('./cli/handlers/util.js'), import('./ink.js')]);
+  }] = await Promise.all([import('../../cli/handlers/util.js'), import('../../ink.js')]);
   const root = await createRoot(getBaseRenderOptions(false));
   await setupTokenHandler(root);
 });
@@ -22,7 +22,7 @@ program.command('setup-token').description('Set up a long-lived authentication t
 program.command('agents').description('List configured agents').option('--setting-sources <sources>', 'Comma-separated list of setting sources to load (user, project, local).').action(async () => {
   const {
     agentsHandler
-  } = await import('./cli/handlers/agents.js');
+  } = await import('../../cli/handlers/agents.js');
   await agentsHandler();
   process.exit(0);
 });
@@ -34,21 +34,21 @@ if (feature('TRANSCRIPT_CLASSIFIER')) {
     autoModeCmd.command('defaults').description('Print the default auto mode environment, allow, and deny rules as JSON').action(async () => {
       const {
         autoModeDefaultsHandler
-      } = await import('./cli/handlers/autoMode.js');
+      } = await import('../../cli/handlers/autoMode.js');
       autoModeDefaultsHandler();
       process.exit(0);
     });
     autoModeCmd.command('config').description('Print the effective auto mode config as JSON: your settings where set, defaults otherwise').action(async () => {
       const {
         autoModeConfigHandler
-      } = await import('./cli/handlers/autoMode.js');
+      } = await import('../../cli/handlers/autoMode.js');
       autoModeConfigHandler();
       process.exit(0);
     });
     autoModeCmd.command('critique').description('Get AI feedback on your custom auto mode rules').option('--model <model>', 'Override which model is used').action(async options => {
       const {
         autoModeCritiqueHandler
-      } = await import('./cli/handlers/autoMode.js');
+      } = await import('../../cli/handlers/autoMode.js');
       await autoModeCritiqueHandler(options);
       process.exit();
     });
@@ -71,7 +71,7 @@ if (feature('BRIDGE_MODE')) {
     // If somehow reached, delegate to bridgeMain.
     const {
       bridgeMain
-    } = await import('./bridge/bridgeMain.js');
+    } = await import('../../bridge/bridgeMain.js');
     await bridgeMain(process.argv.slice(3));
   });
 }
@@ -92,7 +92,7 @@ program.command('doctor').description('Check the health of your Claude Code auto
     doctorHandler
   }, {
     createRoot
-  }] = await Promise.all([import('./cli/handlers/util.js'), import('./ink.js')]);
+  }] = await Promise.all([import('../../cli/handlers/util.js'), import('../../ink.js')]);
   const root = await createRoot(getBaseRenderOptions(false));
   await doctorHandler(root);
 });
@@ -141,7 +141,7 @@ program.command('install [target]').description('Install Claude Code native buil
 }) => {
   const {
     installHandler
-  } = await import('./cli/handlers/util.js');
+  } = await import('../../cli/handlers/util.js');
   await installHandler(target, options);
 });
 
@@ -156,7 +156,7 @@ if ("external" === 'ant') {
   program.command('log').description('[ANT-ONLY] Manage conversation logs.').argument('[number|sessionId]', 'A number (0, 1, 2, etc.) to display a specific log, or the sesssion ID (uuid) of a log', validateLogId).action(async (logId: string | number | undefined) => {
     const {
       logHandler
-    } = await import('./cli/handlers/ant.js');
+    } = await import('../../cli/handlers/ant.js');
     await logHandler(logId);
   });
 
@@ -164,7 +164,7 @@ if ("external" === 'ant') {
   program.command('error').description('[ANT-ONLY] View error logs. Optionally provide a number (0, -1, -2, etc.) to display a specific log.').argument('[number]', 'A number (0, 1, 2, etc.) to display a specific log', parseInt).action(async (number: number | undefined) => {
     const {
       errorHandler
-    } = await import('./cli/handlers/ant.js');
+    } = await import('../../cli/handlers/ant.js');
     await errorHandler(number);
   });
 
@@ -177,7 +177,7 @@ $ claude export input.json output.txt             Render JSON log file to text
 $ claude export <uuid>.jsonl output.txt           Render JSONL session file to text`).action(async (source: string, outputFile: string) => {
     const {
       exportHandler
-    } = await import('./cli/handlers/ant.js');
+    } = await import('../../cli/handlers/ant.js');
     await exportHandler(source, outputFile);
   });
   if ("external" === 'ant') {
@@ -188,7 +188,7 @@ $ claude export <uuid>.jsonl output.txt           Render JSONL session file to t
     }) => {
       const {
         taskCreateHandler
-      } = await import('./cli/handlers/ant.js');
+      } = await import('../../cli/handlers/ant.js');
       await taskCreateHandler(subject, opts);
     });
     taskCmd.command('list').description('List all tasks').option('-l, --list <id>', 'Task list ID (defaults to "tasklist")').option('--pending', 'Show only pending tasks').option('--json', 'Output as JSON').action(async (opts: {
@@ -198,7 +198,7 @@ $ claude export <uuid>.jsonl output.txt           Render JSONL session file to t
     }) => {
       const {
         taskListHandler
-      } = await import('./cli/handlers/ant.js');
+      } = await import('../../cli/handlers/ant.js');
       await taskListHandler(opts);
     });
     taskCmd.command('get <id>').description('Get details of a task').option('-l, --list <id>', 'Task list ID (defaults to "tasklist")').action(async (id: string, opts: {
@@ -206,7 +206,7 @@ $ claude export <uuid>.jsonl output.txt           Render JSONL session file to t
     }) => {
       const {
         taskGetHandler
-      } = await import('./cli/handlers/ant.js');
+      } = await import('../../cli/handlers/ant.js');
       await taskGetHandler(id, opts);
     });
     taskCmd.command('update <id>').description('Update a task').option('-l, --list <id>', 'Task list ID (defaults to "tasklist")').option('-s, --status <status>', `Set status (${TASK_STATUSES.join(', ')})`).option('--subject <text>', 'Update subject').option('-d, --description <text>', 'Update description').option('--owner <agentId>', 'Set owner').option('--clear-owner', 'Clear owner').action(async (id: string, opts: {
@@ -219,7 +219,7 @@ $ claude export <uuid>.jsonl output.txt           Render JSONL session file to t
     }) => {
       const {
         taskUpdateHandler
-      } = await import('./cli/handlers/ant.js');
+      } = await import('../../cli/handlers/ant.js');
       await taskUpdateHandler(id, opts);
     });
     taskCmd.command('dir').description('Show the tasks directory path').option('-l, --list <id>', 'Task list ID (defaults to "tasklist")').action(async (opts: {
@@ -227,7 +227,7 @@ $ claude export <uuid>.jsonl output.txt           Render JSONL session file to t
     }) => {
       const {
         taskDirHandler
-      } = await import('./cli/handlers/ant.js');
+      } = await import('../../cli/handlers/ant.js');
       await taskDirHandler(opts);
     });
   }
@@ -240,7 +240,7 @@ $ claude export <uuid>.jsonl output.txt           Render JSONL session file to t
   }) => {
     const {
       completionHandler
-    } = await import('./cli/handlers/ant.js');
+    } = await import('../../cli/handlers/ant.js');
     await completionHandler(shell, opts, program);
   });
 }

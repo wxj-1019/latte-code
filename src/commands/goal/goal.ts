@@ -28,6 +28,7 @@ import {
 } from './goalState.js'
 import { buildGoalInitialPrompt, buildGoalContinuationPrompt } from './goalPrompts.js'
 import { captureTerminalState, formatTerminalContext } from '../../services/terminalAwareness.js'
+import { resetPool } from '../../services/workflow/pool.js'
 
 const SUBCOMMANDS = ['pause', 'resume', 'clear', 'status', 'stop', 'off', 'reset', 'cancel']
 
@@ -177,6 +178,7 @@ export const call: LocalCommandCall = async (
       }
       const objective = goal.objective
       clearGoal()
+      resetPool()
       restoreOriginalPermissionMode(context.setAppState.bind(context))
       return { type: 'text', value: `Goal cleared: ${objective}` }
     }
@@ -214,6 +216,9 @@ export const call: LocalCommandCall = async (
 
       // Initialize self-reflection mechanism
       initReflection()
+
+      // Reset workflow pool for new goal
+      resetPool()
 
       // Enable auto-approval mode with Smart Approvals safety net
       enableGoalAutoApproval(context)
