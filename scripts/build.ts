@@ -58,6 +58,7 @@ const fullExperimentalFeatures = [
   'UNATTENDED_RETRY',
   'VERIFICATION_AGENT',
   'VOICE_MODE',
+  'NUDGE_ENGINE',
 ] as const
 
 function runCommand(cmd: string[]): string | null {

@@ -953,6 +953,29 @@ export const SettingsSchema = lazySchema(() =>
         .describe(
           'Enable background memory consolidation (auto-dream). When set, overrides the server-side default.',
         ),
+      nudgeEngineEnabled: z
+        .boolean()
+        .optional()
+        .describe(
+          'Enable the Nudge Engine for automatic self-learning. When enabled, Claude automatically extracts reusable skills from complex sessions.',
+        ),
+      nudgeEngineTurnThreshold: z
+        .number()
+        .int()
+        .min(3)
+        .optional()
+        .describe(
+          'Number of turns before triggering auto-skill extraction (default: 8).',
+        ),
+      nudgeEngineMaxPerSession: z
+        .number()
+        .int()
+        .min(1)
+        .max(10)
+        .optional()
+        .describe(
+          'Maximum number of auto-generated skills per session (default: 3).',
+        ),
       showThinkingSummaries: z
         .boolean()
         .optional()

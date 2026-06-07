@@ -42,6 +42,9 @@ import { getAgentName, getTeamName, isTeammate } from '../utils/teammate.js'
 const extractMemoriesModule = feature('EXTRACT_MEMORIES')
   ? (require('../services/extractMemories/extractMemories.js') as typeof import('../services/extractMemories/extractMemories.js'))
   : null
+const nudgeEngineModule = feature('NUDGE_ENGINE')
+  ? (require('../services/nudgeEngine/nudgeEngine.js') as typeof import('../services/nudgeEngine/nudgeEngine.js'))
+  : null
 const jobClassifierModule = feature('TEMPLATES')
   ? (require('../jobs/classifier.js') as typeof import('../jobs/classifier.js'))
   : null
@@ -153,6 +156,9 @@ export async function* handleStopHooks(
     }
     if (!toolUseContext.agentId) {
       void executeAutoDream(stopHookContext, toolUseContext.appendSystemMessage)
+    }
+    if (nudgeEngineModule && !toolUseContext.agentId) {
+      void nudgeEngineModule.executeNudge(stopHookContext)
     }
   }
 

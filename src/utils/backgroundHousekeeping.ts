@@ -35,6 +35,10 @@ export function startBackgroundHousekeeping(): void {
     extractMemoriesModule!.initExtractMemories()
   }
   initAutoDream()
+  if (feature('NUDGE_ENGINE')) {
+    const nudgeEngineModule = require('../services/nudgeEngine/nudgeEngine.js') as typeof import('../services/nudgeEngine/nudgeEngine.js')
+    nudgeEngineModule.initNudgeEngine()
+  }
   void autoUpdateMarketplacesAndPluginsInBackground()
   if (feature('LODESTONE') && getIsInteractive()) {
     void registerProtocolModule!.ensureDeepLinkProtocolRegistered()
