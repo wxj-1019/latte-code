@@ -8,6 +8,8 @@ import {
   normalizeOpenAICompatibleMode,
   saveCustomModel,
   type SaveCustomModelResult,
+  MODEL_PRESETS,
+  isPresetAlreadySaved,
 } from '../utils/customApiStorage.js'
 import { validateCompatibleModelConfig } from '../utils/model/validateModel.js'
 import { Select } from './CustomSelect/select.js'
@@ -15,6 +17,7 @@ import { Spinner } from './Spinner.js'
 import TextInput from './TextInput.js'
 
 type Step =
+  | { type: 'preset' }
   | { type: 'name'; value: string }
   | { type: 'baseURL'; value: string }
   | { type: 'model'; value: string }
@@ -55,7 +58,7 @@ export function CustomModelSetupFlow({
   )
 
   const [steps, setSteps] = useState<Step[]>([
-    { type: 'name', value: initialName ?? '' },
+    { type: 'preset' },
   ])
   const [cursorOffset, setCursorOffset] = useState(0)
   const currentStep = steps[steps.length - 1]!
@@ -84,7 +87,25 @@ export function CustomModelSetupFlow({
   }, [])
 
   const goBack = useCallback(() => {
-    setSteps(prev => (prev.length <= 1 ? prev : prev.slice(0, -1)))
+    setSteps(prev => {
+      if (prev.length <= 1) return prev
+
+      // In preset flow: allow stepping back through pre-filled steps
+      // but return to preset page only from the name step
+      const hasPresetStep = prev.some(s => s.type === 'preset')
+      if (hasPresetStep) {
+        const presetIndex = prev.findIndex(s => s.type === 'preset')
+        // Only go back to preset if we're at the name step
+        // (i.e., name is the only step after preset)
+        if (prev.length === presetIndex + 2 && prev[presetIndex + 1]?.type === 'name') {
+          return prev.slice(0, presetIndex + 1)
+        }
+        // Otherwise, go back one step normally (allow editing pre-filled values)
+        return prev.slice(0, -1)
+      }
+
+      return prev.slice(0, -1)
+    })
     setCursorOffset(0)
   }, [])
 
@@ -105,6 +126,35 @@ export function CustomModelSetupFlow({
 
     return values
   }, [steps])
+
+  const handlePresetSelect = useCallback(
+    (value: string) => {
+      if (value === '__custom__') {
+        // Manual flow: start with name input
+        pushStep({ type: 'name', value: initialName ?? '' })
+        return
+      }
+
+      // Find the selected preset
+      const preset = MODEL_PRESETS.find(p => p.name === value)
+      if (!preset) {
+        pushStep({ type: 'name', value: initialName ?? '' })
+        return
+      }
+
+      // Pre-fill all values from preset, jump directly to apiKey input
+      // Store preset info in the steps so collectValues can read them
+      setSteps(prev => [
+        ...prev,
+        { type: 'name', value: preset.name },
+        { type: 'baseURL', value: preset.baseURL },
+        { type: 'model', value: preset.model },
+        { type: 'apiKey', value: '' },
+      ])
+      setCursorOffset(0)
+    },
+    [initialName, pushStep],
+  )
 
   const handleNameSubmit = useCallback(
     (value: string) => {
@@ -147,8 +197,64 @@ export function CustomModelSetupFlow({
   )
 
   const handleApiKeySubmit = useCallback(() => {
-    pushStep({ type: 'mode', value: 'chat_completions' })
-  }, [pushStep])
+    const isPresetFlow = steps.some(s => s.type === 'preset')
+    if (isPresetFlow) {
+      // Preset flow: skip mode selection (always chat_completions), go straight to validation
+      const values = collectValues()
+      const normalizedBaseURL = normalizeCustomModelBaseURL(values.baseURL)
+
+      setSteps(prev => [...prev, { type: 'validating' }])
+
+      void (async () => {
+        const validation = await validateCompatibleModelConfig({
+          name: values.name,
+          baseURL: normalizedBaseURL,
+          model: values.model,
+          apiKey: values.apiKey || undefined,
+        })
+
+        if (!validation.valid) {
+          setSteps(prev => [
+            ...prev.slice(0, -1),
+            {
+              type: 'error',
+              message: validation.error ?? 'Failed to validate the custom model.',
+            },
+          ])
+          return
+        }
+
+        setSteps(prev => [...prev.slice(0, -1), { type: 'saving' }])
+
+        // Find preset to get maxTokens if available
+        const preset = MODEL_PRESETS.find(p => p.name === values.name)
+
+        const result = saveCustomModel({
+          name: values.name,
+          provider: 'openai',
+          baseURL: normalizedBaseURL,
+          model: values.model,
+          apiMode: 'chat_completions',
+          apiKey: values.apiKey || undefined,
+          activate: true,
+          ...(preset?.maxTokens && { maxTokens: preset.maxTokens }),
+        })
+
+        if (result.success) {
+          onSuccess?.(result)
+          finishSuccess(result)
+        } else {
+          setSteps(prev => [
+            ...prev.slice(0, -1),
+            { type: 'error', message: result.error ?? 'Failed to save the custom model.' },
+          ])
+        }
+      })()
+    } else {
+      // Manual flow: proceed to mode selection
+      pushStep({ type: 'mode', value: 'chat_completions' })
+    }
+  }, [collectValues, normalizeCustomModelBaseURL, onSuccess, finishSuccess, pushStep, steps])
 
   const finishSuccess = useCallback(
     (result: SaveCustomModelResult) => {
@@ -270,11 +376,44 @@ export function CustomModelSetupFlow({
 
   const renderStep = (): React.ReactNode => {
     switch (currentStep.type) {
-      case 'name':
+      case 'preset': {
+        const presetOptions = MODEL_PRESETS.map(preset => ({
+          label: `${preset.name}${isPresetAlreadySaved(preset) ? ' (已配置)' : ''}`,
+          value: preset.name,
+          description: `${preset.description} · ${preset.model}`,
+        }))
+        presetOptions.push({
+          label: '自定义模型...',
+          value: '__custom__',
+          description: '手动输入所有配置信息',
+        })
         return (
           <Box flexDirection="column" gap={1}>
-            <Text bold>Add OpenAI-compatible model</Text>
-            <Text>Enter a display name for this model.</Text>
+            <Text bold>添加 OpenAI 兼容模型</Text>
+            <Text>选择一个预设模板，或选择"自定义"手动配置。</Text>
+            <Box marginTop={1}>
+              <Select
+                options={presetOptions}
+                onChange={handlePresetSelect}
+                onCancel={handleCancel}
+                visibleOptionCount={10}
+              />
+            </Box>
+            <Text dimColor>使用方向键选择，Enter 确认，Esc 取消。</Text>
+          </Box>
+        )
+      }
+
+      case 'name': {
+        const isPresetFlow = steps.some(s => s.type === 'preset')
+        return (
+          <Box flexDirection="column" gap={1}>
+            <Text bold>{isPresetFlow ? '确认模型名称' : 'Add OpenAI-compatible model'}</Text>
+            {isPresetFlow ? (
+              <Text>预设已自动填充名称，可以修改后按 Enter。</Text>
+            ) : (
+              <Text>Enter a display name for this model.</Text>
+            )}
             <Box>
               <Text>{PASTE_HERE_MSG}</Text>
               <TextInput
@@ -287,15 +426,21 @@ export function CustomModelSetupFlow({
                 focus
               />
             </Box>
-            <Text dimColor>Press Enter to continue, or Esc to cancel.</Text>
+            <Text dimColor>按 Enter 继续，按 Esc 返回选择预设。</Text>
           </Box>
         )
+      }
 
-      case 'baseURL':
+      case 'baseURL': {
+        const isPresetFlow = steps.some(s => s.type === 'preset')
         return (
           <Box flexDirection="column" gap={1}>
-            <Text bold>Configure endpoint</Text>
-            <Text>Enter the provider base URL, for example `https://api.deepseek.com`.</Text>
+            <Text bold>{isPresetFlow ? '确认 API 端点' : 'Configure endpoint'}</Text>
+            {isPresetFlow ? (
+              <Text>预设已自动填充端点地址，可以修改后按 Enter。</Text>
+            ) : (
+              <Text>Enter the provider base URL, for example `https://api.deepseek.com`.</Text>
+            )}
             <Box>
               <Text>{PASTE_HERE_MSG}</Text>
               <TextInput
@@ -308,15 +453,21 @@ export function CustomModelSetupFlow({
                 focus
               />
             </Box>
-            <Text dimColor>Press Enter to continue, or Esc to go back.</Text>
+            <Text dimColor>{isPresetFlow ? '按 Enter 继续，按 Esc 返回上一步。' : 'Press Enter to continue, or Esc to go back.'}</Text>
           </Box>
         )
+      }
 
-      case 'model':
+      case 'model': {
+        const isPresetFlow = steps.some(s => s.type === 'preset')
         return (
           <Box flexDirection="column" gap={1}>
-            <Text bold>Configure model ID</Text>
-            <Text>Enter the upstream model ID, for example `deepseek-chat`.</Text>
+            <Text bold>{isPresetFlow ? '确认模型 ID' : 'Configure model ID'}</Text>
+            {isPresetFlow ? (
+              <Text>预设已自动填充模型 ID，可以修改后按 Enter。</Text>
+            ) : (
+              <Text>Enter the upstream model ID, for example `deepseek-chat`.</Text>
+            )}
             <Box>
               <Text>{PASTE_HERE_MSG}</Text>
               <TextInput
@@ -329,15 +480,21 @@ export function CustomModelSetupFlow({
                 focus
               />
             </Box>
-            <Text dimColor>Press Enter to continue, or Esc to go back.</Text>
+            <Text dimColor>{isPresetFlow ? '按 Enter 继续，按 Esc 返回上一步。' : 'Press Enter to continue, or Esc to go back.'}</Text>
           </Box>
         )
+      }
 
-      case 'apiKey':
+      case 'apiKey': {
+        const isPresetFlow = steps.some(s => s.type === 'preset')
         return (
           <Box flexDirection="column" gap={1}>
-            <Text bold>Configure API key</Text>
-            <Text>Enter an API key, or leave it blank to use `DOGE_API_KEY`.</Text>
+            <Text bold>{isPresetFlow ? '配置 API Key' : 'Configure API key'}</Text>
+            {isPresetFlow ? (
+              <Text>请输入该模型的 API Key。</Text>
+            ) : (
+              <Text>Enter an API key, or leave it blank to use `DOGE_API_KEY`.</Text>
+            )}
             <Box>
               <Text>{PASTE_HERE_MSG}</Text>
               <TextInput
@@ -351,9 +508,10 @@ export function CustomModelSetupFlow({
                 focus
               />
             </Box>
-            <Text dimColor>Press Enter to continue, or Esc to go back.</Text>
+            <Text dimColor>{isPresetFlow ? '按 Enter 继续，按 Esc 返回选择预设。' : 'Press Enter to continue, or Esc to go back.'}</Text>
           </Box>
         )
+      }
 
       case 'mode':
         return (

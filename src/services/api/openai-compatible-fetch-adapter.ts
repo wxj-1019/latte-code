@@ -309,14 +309,15 @@ function buildOpenAIChatCompletionsBody(
     stream_options: stream ? { include_usage: true } : undefined,
   }
 
-  // OpenAI-compatible APIs typically have lower max_tokens limits than Anthropic
-  // DeepSeek max is 8192, OpenAI gpt-4 is 4096-8192 depending on version
-  const MAX_OPENAI_COMPATIBLE_TOKENS = 8192
+  // OpenAI-compatible APIs typically have lower max_tokens limits than Anthropic.
+  // Use per-model config if available, otherwise fall back to default.
+  const defaultMaxTokens = 8192
+  const maxTokens = modelConfig.maxTokens ?? defaultMaxTokens
 
   if (typeof anthropicBody.max_tokens === 'number') {
     requestBody.max_tokens = Math.min(
       anthropicBody.max_tokens,
-      MAX_OPENAI_COMPATIBLE_TOKENS,
+      maxTokens,
     )
   }
   if (typeof anthropicBody.temperature === 'number') {

@@ -192,6 +192,7 @@ export type CustomModelConfig = {
   apiMode: OpenAICompatibleMode
   createdAt: number
   updatedAt: number
+  maxTokens?: number
 }
 
 export type GlobalConfig = {

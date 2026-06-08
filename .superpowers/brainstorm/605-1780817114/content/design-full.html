@@ -1,0 +1,69 @@
+<h2>动态工作流引擎 — 完整设计</h2>
+<p class="subtitle">所有技术选择采用推荐方案，与现有架构深度融合</p>
+
+<div class="section">
+  <h3>1. JS 沙箱：Bun vm 模块</h3>
+  <p>零依赖，与 latte-code 同运行时，支持超时和内存限制。对比 Node.js worker_threads 或独立进程更轻量。</p>
+  <div class="pros-cons">
+    <div class="pros"><h4>理由</h4><ul><li>Bun 原生，零额外依赖</li><li>内置超时 + 内存上限</li><li>项目已在多处使用 Bun 特性</li></ul></div>
+    <div class="cons"><h4>限制</h4><ul><li>不提供 OS 级别隔离</li><li>脚本不能 import 外部模块（白名单机制）</li></ul></div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>2. 代理池：复用 spawnMultiAgent</h3>
+  <p>Workflow Engine 调用已有的 spawnMultiAgent 管理子代理，与 AgentTool 共享同一套生命周期。</p>
+  <p style="font-size:13px;color:#666">并发 16 上限、代理间通信、权限继承、worktree 隔离 — 全部复用。</p>
+</div>
+
+<div class="section">
+  <h3>3. 文件结构（新建 3 个模块）</h3>
+  <table style="width:100%;font-size:13px;border-collapse:collapse">
+    <tr style="background:#F1EFE8"><td style="padding:6px 10px"><strong>路径</strong></td><td style="padding:6px 10px"><strong>职责</strong></td></tr>
+    <tr><td style="padding:6px 10px">src/services/workflow/engine.ts</td><td style="padding:6px 10px">脚本加载、沙箱执行、结果收集</td></tr>
+    <tr><td style="padding:6px 10px">src/services/workflow/pool.ts</td><td style="padding:6px 10px">代理池管理（并发控制、生命周期）</td></tr>
+    <tr><td style="padding:6px 10px">src/services/workflow/nudgeIntegration.ts</td><td style="padding:6px 10px">与 Nudge Engine 自动触发桥接</td></tr>
+    <tr><td style="padding:6px 10px">src/tools/WorkflowTool/WorkflowTool.ts</td><td style="padding:6px 10px">从存根升级为完整 Tool 实现</td></tr>
+    <tr><td style="padding:6px 10px">src/commands/workflow/</td><td style="padding:6px 10px">/workflow 斜杠命令</td></tr>
+  </table>
+</div>
+
+<div class="section">
+  <h3>4. 核心数据流</h3>
+  <div style="background:#F1EFE8;border-radius:8px;padding:16px;font-family:monospace;font-size:12px;line-height:1.8">
+  Nudge Engine 检测模式<br>
+  │ → autoSkillify 生成 .claude/skills/_auto_xxx/SKILL.md<br>
+  │<br>
+  ▼<br>
+  Workflow Engine 收到触发（自动/关键词/手动）<br>
+  │ → 加载 Skill → LLM 生成 JS 编排脚本<br>
+  │ → Bun vm 沙箱执行脚本<br>
+  │    ├─ script.spawn("agent-name", { task }) → pool.acquire()<br>
+  │    ├─ agent 结果 → script 变量（不进 Claude 上下文）<br>
+  │    └─ script.return(finalAnswer) → 回传 Claude<br>
+  │<br>
+  ▼<br>
+  结果反馈<br>
+  │ → memdir 记录执行统计<br>
+  │ → Nudge Engine 更新 Skill 置信度/使用频率<br>
+  │ → 高频 Skill → 提升为永久 Skill
+  </div>
+</div>
+
+<div class="section">
+  <h3>5. Feature Flag：WORKFLOW_ENGINE</h3>
+  <p>编译期 DCE，与 NUDGE_ENGINE 同级。未启用时零运行时开销。</p>
+  <p style="font-size:13px;color:#666">scripts/build.ts 添加 --feature=WORKFLOW_ENGINE</p>
+</div>
+
+<div class="section">
+  <h3>6. 实施估算</h3>
+  <div class="options" data-multiselect style="pointer-events:none;opacity:0.9">
+    <div class="option"><div class="letter" style="background:#EAF3DE">1</div><div class="content"><h3>WorkflowTool 骨架</h3><p>Tool 注册 + Schema + 空存根替换</p></div></div>
+    <div class="option"><div class="letter" style="background:#EAF3DE">2</div><div class="content"><h3>沙箱引擎</h3><p>Bun vm + 脚本生命周期 + 安全限制</p></div></div>
+    <div class="option"><div class="letter" style="background:#EAF3DE">3</div><div class="content"><h3>代理池</h3><p>复用 spawnMultiAgent + 并发控制</p></div></div>
+    <div class="option"><div class="letter" style="background:#EAF3DE">4</div><div class="content"><h3>Nudge 集成</h3><p>自动触发桥接 + 反馈闭环</p></div></div>
+    <div class="option"><div class="letter" style="background:#EAF3DE">5</div><div class="content"><h3>/workflow 命令</h3><p>斜杠命令 + 用户交互</p></div></div>
+    <div class="option"><div class="letter" style="background:#EAF3DE">6</div><div class="content"><h3>测试 + 文档</h3><p>核心流程测试 + 用户文档</p></div></div>
+  </div>
+</div>

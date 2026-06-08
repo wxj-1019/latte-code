@@ -36,6 +36,7 @@ export type SaveCustomModelInput = {
   apiMode?: OpenAICompatibleMode
   apiKey?: string
   activate?: boolean
+  maxTokens?: number
 }
 
 export type SaveCustomModelResult = {
@@ -277,6 +278,7 @@ export function saveCustomModel(
     apiMode,
     createdAt: now,
     updatedAt: now,
+    ...(input.maxTokens && { maxTokens: input.maxTokens }),
   }
 
   const apiKey = input.apiKey?.trim()
@@ -544,4 +546,263 @@ export function hasCustomModelConfiguration(
   nameOrModel?: string | null,
 ): boolean {
   return getResolvedCustomModelConfig(nameOrModel) !== null
+}
+
+// ---------------------------------------------------------------------------
+// Model Presets – built-in templates for popular Chinese AI providers
+// ---------------------------------------------------------------------------
+
+export type ModelPreset = {
+  readonly name: string
+  readonly provider: CustomModelProvider
+  readonly model: string
+  readonly baseURL: string
+  readonly apiMode: OpenAICompatibleMode
+  readonly description: string
+  readonly maxTokens?: number
+}
+
+export const MODEL_PRESETS: readonly ModelPreset[] = [
+  // DeepSeek
+  {
+    name: 'DeepSeek Chat',
+    provider: 'openai',
+    model: 'deepseek-chat',
+    baseURL: 'https://api.deepseek.com/v1',
+    apiMode: 'chat_completions',
+    description: 'DeepSeek V3 通用对话模型',
+    maxTokens: 16384,
+  },
+  {
+    name: 'DeepSeek V4 Pro',
+    provider: 'openai',
+    model: 'deepseek-v4-pro',
+    baseURL: 'https://api.deepseek.com/v1',
+    apiMode: 'chat_completions',
+    description: 'DeepSeek V4 Pro 高级模型',
+    maxTokens: 16384,
+  },
+  {
+    name: 'DeepSeek Reasoner',
+    provider: 'openai',
+    model: 'deepseek-reasoner',
+    baseURL: 'https://api.deepseek.com/v1',
+    apiMode: 'chat_completions',
+    description: 'DeepSeek R1 推理模型',
+    maxTokens: 16384,
+  },
+  // Kimi (Moonshot)
+  {
+    name: 'Kimi K2.5',
+    provider: 'openai',
+    model: 'kimi-k2.5',
+    baseURL: 'https://api.moonshot.cn/v1',
+    apiMode: 'chat_completions',
+    description: '月之暗面 Kimi K2.5',
+    maxTokens: 131072,
+  },
+  {
+    name: 'Kimi K2',
+    provider: 'openai',
+    model: 'kimi-k2',
+    baseURL: 'https://api.moonshot.cn/v1',
+    apiMode: 'chat_completions',
+    description: '月之暗面 Kimi K2',
+    maxTokens: 131072,
+  },
+  // GLM (Zhipu AI)
+  {
+    name: 'GLM-4-Plus',
+    provider: 'openai',
+    model: 'glm-4-plus',
+    baseURL: 'https://open.bigmodel.cn/api/paas/v1',
+    apiMode: 'chat_completions',
+    description: '智谱 GLM-4-Plus',
+    maxTokens: 16384,
+  },
+  {
+    name: 'GLM-4-Flash',
+    provider: 'openai',
+    model: 'glm-4-flash',
+    baseURL: 'https://open.bigmodel.cn/api/paas/v1',
+    apiMode: 'chat_completions',
+    description: '智谱 GLM-4-Flash（免费）',
+    maxTokens: 4096,
+  },
+  // Qwen (Alibaba Cloud)
+  {
+    name: 'Qwen-Max',
+    provider: 'openai',
+    model: 'qwen-max',
+    baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    apiMode: 'chat_completions',
+    description: '通义千问 Qwen-Max',
+    maxTokens: 32768,
+  },
+  {
+    name: 'Qwen-Plus',
+    provider: 'openai',
+    model: 'qwen-plus',
+    baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    apiMode: 'chat_completions',
+    description: '通义千问 Qwen-Plus',
+    maxTokens: 32768,
+  },
+  {
+    name: 'Qwen3-Coder',
+    provider: 'openai',
+    model: 'qwen3-coder-plus',
+    baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    apiMode: 'chat_completions',
+    description: '通义千问 Qwen3 Coder 编程模型',
+    maxTokens: 32768,
+  },
+  // MiMo (Xiaomi)
+  {
+    name: 'MiMo-V2.5-Pro',
+    provider: 'openai',
+    model: 'mimo-v2.5-pro',
+    baseURL: 'https://token-plan-cn.xiaomimimo.com/v1',
+    apiMode: 'chat_completions',
+    description: '小米 MiMo V2.5 Pro',
+  },
+  // Hunyuan (Tencent)
+  {
+    name: 'Hunyuan-T1',
+    provider: 'openai',
+    model: 'hunyuan-t1-latest',
+    baseURL: 'https://api.hunyuan.cloud.tencent.com/v1',
+    apiMode: 'chat_completions',
+    description: '腾讯混元 T1 推理模型',
+    maxTokens: 16384,
+  },
+  // Doubao (ByteDance / Volcengine)
+  {
+    name: 'Doubao-1.5-Pro',
+    provider: 'openai',
+    model: 'doubao-1.5-pro-256k',
+    baseURL: 'https://ark.cn-beijing.volces.com/api/v3',
+    apiMode: 'chat_completions',
+    description: '字节豆包 1.5 Pro（需填入 Endpoint ID 作为 model）',
+    maxTokens: 32768,
+  },
+  // Ollama (local)
+  {
+    name: 'Ollama (本地)',
+    provider: 'openai',
+    model: 'qwen3:8b',
+    baseURL: 'http://localhost:11434/v1',
+    apiMode: 'chat_completions',
+    description: 'Ollama 本地模型（需先启动 Ollama）',
+  },
+] as const
+
+/**
+ * Find a preset by name (case-insensitive).
+ */
+export function findModelPreset(name: string): ModelPreset | undefined {
+  const normalized = normalizeName(name)
+  return MODEL_PRESETS.find(p => normalizeName(p.name) === normalized)
+}
+
+/**
+ * Check if a model name or model ID matches an existing saved model.
+ * Used by the preset flow to skip already-configured models.
+ */
+export function isPresetAlreadySaved(preset: ModelPreset): boolean {
+  const saved = getSavedCustomModels()
+  return saved.some(
+    m =>
+      normalizeName(m.name) === normalizeName(preset.name) ||
+      normalizeName(m.model) === normalizeName(preset.model),
+  )
+}
+
+// ---------------------------------------------------------------------------
+// updateCustomModel – edit an existing saved model's fields
+// ---------------------------------------------------------------------------
+
+export type UpdateCustomModelInput = {
+  baseURL?: string
+  model?: string
+  apiKey?: string
+  apiMode?: OpenAICompatibleMode
+}
+
+export function updateCustomModel(
+  name: string,
+  updates: UpdateCustomModelInput,
+): SaveCustomModelResult {
+  const existing = getSavedCustomModelByName(name)
+  if (!existing) {
+    return { success: false, error: `Custom model "${name}" not found.` }
+  }
+
+  // Validate new model ID uniqueness if changing
+  if (updates.model && normalizeName(updates.model) !== normalizeName(existing.model)) {
+    const uniqueness = validateCustomModelUniqueness(
+      { name: existing.name, model: updates.model },
+      existing.name,
+    )
+    if (!uniqueness.valid) {
+      return { success: false, error: uniqueness.error }
+    }
+  }
+
+  // Validate new baseURL if changing
+  if (updates.baseURL) {
+    const normalized = normalizeCustomModelBaseURL(updates.baseURL)
+    if (!isValidUrl(normalized)) {
+      return { success: false, error: 'Base URL must be a valid URL.' }
+    }
+  }
+
+  // Update API key if provided
+  let warning: string | undefined
+  if (updates.apiKey !== undefined) {
+    const apiKey = updates.apiKey.trim()
+    if (apiKey) {
+      const allKeys = getCustomModelApiKeys()
+      allKeys[existing.name] = apiKey
+      const saveResult = saveCustomModelApiKeys(allKeys)
+      if (!saveResult.success) {
+        return {
+          success: false,
+          error: 'Failed to update the API key in secure storage.',
+        }
+      }
+      warning = saveResult.warning
+    } else {
+      // Empty string means remove the key
+      removeCustomModelApiKey(existing.name)
+    }
+  }
+
+  // Update metadata in settings.json
+  const updatedModel: CustomModelConfig = {
+    ...existing,
+    ...(updates.baseURL && { baseURL: normalizeCustomModelBaseURL(updates.baseURL) }),
+    ...(updates.model && { model: updates.model.trim() }),
+    ...(updates.apiMode && { apiMode: updates.apiMode }),
+    updatedAt: Date.now(),
+  }
+
+  try {
+    saveGlobalConfig(current => ({
+      ...current,
+      customModels: (current.customModels ?? []).map(m =>
+        normalizeName(m.name) === normalizeName(name) ? updatedModel : m,
+      ),
+    }))
+  } catch (error) {
+    return {
+      success: false,
+      error:
+        error instanceof Error
+          ? error.message
+          : 'Failed to update custom model metadata.',
+    }
+  }
+
+  return { success: true, model: updatedModel, warning }
 }

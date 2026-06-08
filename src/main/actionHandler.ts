@@ -25,6 +25,36 @@ import { initBuiltinPlugins } from '../plugins/bundled/index.js';
 import { initBundledSkills } from '../skills/bundled/index.js';
 import { _pendingConnect, _pendingAssistantChat, _pendingSSH } from './entrypointTypes.js';
 
+// Lazy require to avoid circular dependency (mirrors main.tsx)
+/* eslint-disable @typescript-eslint/no-require-imports */
+const getTeammateUtils = () => require('../utils/teammate.js') as typeof import('../utils/teammate.js');
+const getTeammatePromptAddendum = () => require('../utils/swarm/teammatePromptAddendum.js') as typeof import('../utils/swarm/teammatePromptAddendum.js');
+const getTeammateModeSnapshot = () => require('../utils/swarm/backends/teammateModeSnapshot.js') as typeof import('../utils/swarm/backends/teammateModeSnapshot.js');
+/* eslint-enable @typescript-eslint/no-require-imports */
+
+// Dead code elimination: conditional import for COORDINATOR_MODE
+/* eslint-disable @typescript-eslint/no-require-imports */
+const coordinatorModeModule = feature('COORDINATOR_MODE') ? require('../coordinator/coordinatorMode.js') as typeof import('../coordinator/coordinatorMode.js') : null;
+/* eslint-enable @typescript-eslint/no-require-imports */
+
+// Dead code elimination: conditional import for KAIROS (assistant mode)
+/* eslint-disable @typescript-eslint/no-require-imports */
+const assistantModule = feature('KAIROS') ? require('../assistant/index.js') as typeof import('../assistant/index.js') : null;
+const kairosGate = feature('KAIROS') ? require('../assistant/gate.js') as typeof import('../assistant/gate.js') : null;
+/* eslint-enable @typescript-eslint/no-require-imports */
+
+// Dead code elimination: conditional import for TRANSCRIPT_CLASSIFIER
+/* eslint-disable @typescript-eslint/no-require-imports */
+const autoModeStateModule = feature('TRANSCRIPT_CLASSIFIER') ? require('../utils/permissions/autoModeState.js') as typeof import('../utils/permissions/autoModeState.js') : null;
+/* eslint-enable @typescript-eslint/no-require-imports */
+
+// Helper: check if trust dialog has been accepted
+function checkHasTrustDialogAccepted(): boolean {
+  const { getGlobalConfig } = require('../utils/config.js');
+  const config = getGlobalConfig();
+  return config.hasAcceptedTrustDialog ?? false;
+}
+
 export async function runAction(prompt: string | undefined, options: Record<string, unknown>): Promise<void> {
 
   profileCheckpoint('action_handler_start');

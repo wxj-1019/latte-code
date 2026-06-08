@@ -1,0 +1,63 @@
+<h2>P0 优先事项：先做哪个？</h2>
+<p class="subtitle">两项都是核心缺失，但实施顺序影响后续开发效率</p>
+
+<div class="options">
+  <div class="option" data-choice="dynamic-workflows" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>动态工作流引擎</h3>
+      <p>JS 编排脚本 + 16并发代理池 + 检查点恢复</p>
+      <div class="pros-cons" style="margin-top:12px">
+        <div class="pros">
+          <h4>优势</h4>
+          <ul>
+            <li>直接提升用户体验 — 大规模任务自动化</li>
+            <li>与 Nudge Engine 形成闭环（学→自动执行）</li>
+            <li>可复用现有 AgentTool 基础设施</li>
+          </ul>
+        </div>
+        <div class="cons">
+          <h4>挑战</h4>
+          <ul>
+            <li>需要设计 JS 沙箱运行时</li>
+            <li>代理池生命周期管理较复杂</li>
+            <li>WorkflowTool 目前是空存根</li>
+          </ul>
+        </div>
+      </div>
+      <p style="margin-top:12px"><strong>涉及改动：</strong>src/tools/WorkflowTool/、src/services/workflow/（新建）</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="kernel-sandbox" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>内核级沙箱增强</h3>
+      <p>bubblewrap(Linux) + Seatbelt(macOS) 四层隔离</p>
+      <div class="pros-cons" style="margin-top:12px">
+        <div class="pros">
+          <h4>优势</h4>
+          <ul>
+            <li>安全基准对齐 Codex CLI 行业标准</li>
+            <li>企业级用户核心诉求</li>
+            <li>Bun 运行时天然有利于沙箱集成</li>
+          </ul>
+        </div>
+        <div class="cons">
+          <h4>挑战</h4>
+          <ul>
+            <li>深度系统级集成，平台差异大</li>
+            <li>Windows 沙箱方案不成熟</li>
+            <li>测试困难（需要不同 OS 环境）</li>
+          </ul>
+        </div>
+      </div>
+      <p style="margin-top:12px"><strong>涉及改动：</strong>src/utils/sandbox/（扩展）、vendor/ 二进制依赖</p>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top:24px;">
+  <h3>推荐先做动态工作流</h3>
+  <p>理由：它与 Nudge Engine 形成自动学习→自动执行闭环，这是 latte-code 区别于所有竞品的独特能力。沙箱增强偏基础设施，可以并行推进但不应该阻塞核心功能。</p>
+</div>
